@@ -567,19 +567,11 @@ impl Coordinator {
         Ok(())
     }
 
-    fn cache_register(&self, register: lxp::packet::Register, value: u16) -> Result<()> {
-        let channel_data = register_cache::ChannelData::RegisterData(register, value);
-
-        if self.channels.to_register_cache.send(channel_data).is_err() {
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.register_cache_errors += 1;
-            }
-            bail!("send(to_register_cache) failed - channel closed?");
+    async fn cache_register(&self, register: lxp::packet::Register, value: u16) -> Result<()> {
+        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register as u16, value)) {
+            error!("Failed to cache register {}: {}", register as u16, e);
+            self.stats.lock().unwrap().increment_cache_errors();
         }
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.register_cache_writes += 1;
-        }
-
         Ok(())
     }
 
