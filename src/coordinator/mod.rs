@@ -3,7 +3,8 @@ use crate::prelude::*;
 pub mod commands;
 
 use std::sync::{Arc, Mutex};
-use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, TcpFunction, Parser};
+use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1};
+use lxp::inverter;
 use serde_json::json;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -80,6 +81,18 @@ impl PacketStats {
                 info!("      Last message: {}", last_msg);
             }
         }
+    }
+
+    pub fn increment_serial_mismatches(&mut self) {
+        self.serial_mismatches += 1;
+    }
+
+    pub fn increment_mqtt_errors(&mut self) {
+        self.mqtt_errors += 1;
+    }
+
+    pub fn increment_cache_errors(&mut self) {
+        self.register_cache_errors += 1;
     }
 }
 
@@ -466,222 +479,86 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn process_inverter_packet(&self, packet: Packet) -> Result<()> {
-        debug!("RX: {:?}", packet);
+    async fn process_inverter_packet(&self, packet: Packet, inverter: &config::Inverter) -> Result<()> {
+        if let Packet::TranslatedData(td) = packet {
+            // Log TCP function for debugging
+            debug!("Processing TCP function: {:?}", td.tcp_function());
 
-        // Update packet stats first
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.packets_received += 1;
-            
-            // Store last message for the inverter
-            if let Packet::TranslatedData(td) = &packet {
-                stats.last_messages.insert(td.datalog, format!("{:?}", packet));
+            // Check if serial matches configured inverter
+            if td.inverter() != Some(inverter.serial) {
+                warn!(
+                    "Serial mismatch - got {:?}, expected {}",
+                    td.inverter(),
+                    inverter.serial
+                );
+                self.stats.lock().unwrap().increment_serial_mismatches();
+                return Ok(());
             }
-            
-            // Increment counter for specific received packet type
-            match &packet {
-                Packet::Heartbeat(_) => stats.heartbeat_packets_received += 1,
-                Packet::TranslatedData(_) => stats.translated_data_packets_received += 1,
-                Packet::ReadParam(_) => stats.read_param_packets_received += 1,
-                Packet::WriteParam(_) => stats.write_param_packets_received += 1,
-            }
-        } else {
-            warn!("Failed to lock stats mutex for packet tracking");
-        }
-
-        if let Packet::TranslatedData(td) = &packet {
-            // Check if the inverter serial from packet matches any configured inverter
-            let packet_serial = td.inverter;
-            let packet_datalog = td.datalog;
-            
-            // Log if we see a mismatch between configured and actual serial
-            if let Some(inverter) = self.config.enabled_inverter_with_datalog(packet_datalog) {
-                if inverter.serial() != packet_serial {
-                    warn!(
-                        "Inverter serial mismatch - Config: {}, Actual: {} for datalog: {}",
-                        inverter.serial(),
-                        packet_serial,
-                        packet_datalog
-                    );
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.serial_mismatches += 1;
-                    }
-                }
-            }
-
-            // Log all TCP function types for debugging
-            debug!("TCP function for packet: {:?}", td.tcp_function());
 
             match td.device_function {
                 DeviceFunction::ReadInput => {
-                    let register_map = td.register();
-                    let parser = Parser::new(register_map.clone());
-                    let parsed_inputs = match parser.parse_inputs() {
-                        Ok(inputs) => inputs,
-                        Err(e) => {
-                            error!("Failed to parse inputs: {:?}", e);
-                            return Err(anyhow!("Parse error: {}", e));
-                        }
-                    };
-
-                    if self.config.mqtt().enabled() {
-                        // individual message publishing, raw and parsed
-                        for (register, value) in register_map.iter() {
-                            let topic = format!("{}/input/{}", td.datalog, register);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), false) {
-                                error!("Failed to publish raw input message: {}", e);
+                    debug!("Processing ReadInput packet");
+                    let read_input = td.read_input()?;
+                    match read_input {
+                        ReadInput::ReadInputAll(input_all) => {
+                            debug!("Processing ReadInputAll");
+                            if let Err(e) = self.publish_raw_input_messages(&input_all, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                self.stats.lock().unwrap().increment_mqtt_errors();
                             }
                         }
-
-                        // Publish parsed values
-                        for (key, value) in &parsed_inputs {
-                            let topic = format!("{}/input/{}/parsed", td.datalog, key);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), false) {
-                                error!("Failed to publish parsed input message: {}", e);
+                        ReadInput::ReadInput1(input_1) => {
+                            debug!("Processing ReadInput1");
+                            if let Err(e) = self.publish_raw_input_messages_1(&input_1, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                self.stats.lock().unwrap().increment_mqtt_errors();
                             }
                         }
-
-                        // Publish combined message if we have a topic
-                        if let Some(topic_fragment) = parser.guess_legacy_inputs_topic() {
-                            let topic = format!("{}/inputs/{}", td.datalog, topic_fragment);
-                            if let Err(e) = self.publish_message(
-                                topic,
-                                serde_json::to_string(&parsed_inputs)?,
-                                false,
-                            ) {
-                                error!("Failed to publish combined input message: {}", e);
-                            }
-                        }
-                    }
-
-                    // Cache registers with error handling for each
-                    for (register, value) in register_map {
-                        if let Err(e) = self.cache_register(lxp::packet::Register::Input(register), value) {
-                            error!("Failed to cache register {}: {}", register, e);
-                        }
-                    }
-
-                    // Handle all inputs if needed
-                    if parser.contains_register(120) { // Using the actual register number instead of a config method
-                        let all_inputs = self.get_all_inputs().await?;
-                        let all_parser = Parser::new(all_inputs);
-                        
-                        if let Ok(all_parsed_inputs) = all_parser.parse_inputs() {
-                            if self.config.mqtt().enabled() {
-                                let topic = format!("{}/inputs/all", td.datalog);
-                                if let Err(e) = self.publish_message(
-                                    topic,
-                                    serde_json::to_string(&all_parsed_inputs)?,
-                                    false,
-                                ) {
-                                    error!("Failed to publish all inputs message: {}", e);
-                                }
-                            }
-
-                            if self.config.influx().enabled() {
-                                let json_data = json!({
-                                    "datalog": td.datalog.to_string(),
-                                    "data": all_parsed_inputs
-                                });
-
-                                let channel_data = influx::ChannelData::InputData(json_data);
-                                if self.channels.to_influx.send(channel_data).is_err() {
-                                    if let Ok(mut stats) = self.stats.lock() {
-                                        stats.influx_errors += 1;
-                                    }
-                                    error!("Failed to send data to InfluxDB - channel closed");
-                                } else if let Ok(mut stats) = self.stats.lock() {
-                                    stats.influx_writes += 1;
-                                }
-                            }
+                        _ => {
+                            debug!("Unhandled ReadInput variant");
                         }
                     }
                 }
-                DeviceFunction::ReadHold | DeviceFunction::WriteSingle => {
-                    let register_map = td.register();
-                    let parser = Parser::new(register_map.clone());
-                    let parsed_holds = match parser.parse_holds() {
-                        Ok(holds) => holds,
-                        Err(e) => {
-                            error!("Failed to parse holds: {:?}", e);
-                            return Err(anyhow!("Parse error: {}", e));
-                        }
-                    };
-
-                    if self.config.mqtt().enabled() {
-                        // Publish raw values
-                        for (register, value) in register_map.iter() {
-                            let topic = format!("{}/hold/{}", td.datalog, register);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), true) {
-                                error!("Failed to publish raw hold message: {}", e);
-                            }
-                        }
-
-                        // Publish parsed values
-                        for (key, value) in &parsed_holds {
-                            let topic = format!("{}/{}", td.datalog, key);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), true) {
-                                error!("Failed to publish parsed hold message: {}", e);
-                            }
+                DeviceFunction::ReadHold => {
+                    debug!("Processing ReadHold packet");
+                    let register = td.register();
+                    let pairs = td.pairs();
+                    for (reg, value) in &pairs {
+                        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
+                            error!("Failed to cache register {}: {}", reg, e);
+                            self.stats.lock().unwrap().increment_cache_errors();
                         }
                     }
-
-                    if td.device_function == DeviceFunction::WriteSingle {
-                        if let Some(inverter) = self.config.enabled_inverter_with_datalog(td.datalog) {
-                            if let Err(e) = self.check_related_holds(register_map, inverter).await {
-                                error!("Failed to read related holds: {}", e);
-                            }
-                        }
+                    if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
+                        error!("Failed to publish hold message: {}", e);
+                        self.stats.lock().unwrap().increment_mqtt_errors();
+                    }
+                }
+                DeviceFunction::WriteSingle => {
+                    debug!("Processing WriteSingle packet");
+                    let register = td.register();
+                    let value = td.value();
+                    if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register, value)) {
+                        error!("Failed to cache register {}: {}", register, e);
+                        self.stats.lock().unwrap().increment_cache_errors();
+                    }
+                    if let Err(e) = self.publish_write_confirmation(register, value, inverter).await {
+                        error!("Failed to publish write confirmation: {}", e);
+                        self.stats.lock().unwrap().increment_mqtt_errors();
                     }
                 }
                 DeviceFunction::WriteMulti => {
-                    let register_map = td.register();
-                    let parser = Parser::new(register_map.clone());
-                    let parsed_holds = match parser.parse_holds() {
-                        Ok(holds) => holds,
-                        Err(e) => {
-                            error!("Failed to parse holds: {:?}", e);
-                            return Err(anyhow!("Parse error: {}", e));
-                        }
-                    };
-
-                    // Process each register in the write operation
-                    for (register, value) in register_map.clone() {
-                        if let Err(e) = self.cache_register(lxp::packet::Register::Input(register), value) {
+                    debug!("Processing WriteMulti packet");
+                    let pairs = td.pairs();
+                    for (register, value) in &pairs {
+                        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*register, *value)) {
                             error!("Failed to cache register {}: {}", register, e);
+                            self.stats.lock().unwrap().increment_cache_errors();
                         }
                     }
-
-                    // Publish parsed holds like ReadHold
-                    if self.config.mqtt().enabled() {
-                        // Publish raw values
-                        for (register, value) in register_map.iter() {
-                            let topic = format!("{}/hold/{}", td.datalog, register);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), true) {
-                                error!("Failed to publish raw hold message: {}", e);
-                            }
-                        }
-
-                        // Publish parsed values
-                        for (key, value) in &parsed_holds {
-                            let topic = format!("{}/{}", td.datalog, key);
-                            if let Err(e) = self.publish_message(topic, value.to_string(), true) {
-                                error!("Failed to publish parsed hold message: {}", e);
-                            }
-                        }
-                        
-                        // Publish write confirmation
-                        let topic = format!("{}/write_multi/status", td.datalog);
-                        if let Err(e) = self.publish_message(topic, "OK".to_string(), false) {
-                            error!("Failed to publish write confirmation: {}", e);
-                        }
-                    }
-
-                    // Check for multi-register setups that might need updating
-                    if let Some(inverter) = self.config.enabled_inverter_with_datalog(td.datalog) {
-                        if let Err(e) = self.check_related_holds(register_map, inverter).await {
-                            error!("Failed to read related holds: {}", e);
-                        }
+                    if let Err(e) = self.publish_write_multi_confirmation(pairs, inverter).await {
+                        error!("Failed to publish write multi confirmation: {}", e);
+                        self.stats.lock().unwrap().increment_mqtt_errors();
                     }
                 }
             }
@@ -707,38 +584,38 @@ impl Coordinator {
     }
 
     async fn inverter_receiver(&self) -> Result<()> {
-        use lxp::inverter::ChannelData::*;
-
         let mut receiver = self.channels.from_inverter.subscribe();
 
-        let mut inputs_store = InputsStore::new();
+        while let inverter::ChannelData::Packet(packet) = receiver.recv().await? {
+            // Update packet stats first
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.packets_received += 1;
+                
+                // Store last message for the inverter
+                if let Packet::TranslatedData(td) = &packet {
+                    stats.last_messages.insert(td.datalog(), format!("{:?}", packet));
+                }
+                
+                // Increment counter for specific received packet type
+                match &packet {
+                    Packet::Heartbeat(_) => stats.heartbeat_packets_received += 1,
+                    Packet::TranslatedData(_) => stats.translated_data_packets_received += 1,
+                    Packet::ReadParam(_) => stats.read_param_packets_received += 1,
+                    Packet::WriteParam(_) => stats.write_param_packets_received += 1,
+                }
+            } else {
+                warn!("Failed to lock stats mutex for packet tracking");
+            }
 
-        loop {
-            match receiver.recv().await? {
-                Packet(packet) => {
-                    if let Err(e) = self.process_inverter_packet(packet).await {
+            // Process packet based on type
+            if let Packet::TranslatedData(ref td) = packet {
+                // Find the inverter for this packet
+                if let Some(inverter) = self.config.enabled_inverter_with_datalog(td.datalog()) {
+                    if let Err(e) = self.process_inverter_packet(packet.clone(), &inverter).await {
                         warn!("Failed to process packet: {}", e);
                     }
-                }
-                Connected(serial) => {
-                    if let Err(e) = self.inverter_connected(serial).await {
-                        error!("{}", e);
-                    }
-                }
-                // Print statistics when an inverter disconnects
-                Disconnect(serial) => {
-                    info!("Inverter {} disconnected, printing statistics:", serial);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        *stats.inverter_disconnections.entry(serial).or_insert(0) += 1;
-                        stats.print_summary();
-                    }
-                }
-                Shutdown => {
-                    info!("Received shutdown signal, printing final statistics:");
-                    if let Ok(stats) = self.stats.lock() {
-                        stats.print_summary();
-                    }
-                    break;
+                } else {
+                    warn!("No enabled inverter found for datalog {}", td.datalog());
                 }
             }
         }
@@ -869,6 +746,81 @@ impl Coordinator {
             self.read_hold(inverter.clone(), 84_u16, 2).await?;
         }
         // ... rest of the implementation ...
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages(&self, input_all: &ReadInputAll, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/all", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_all)?, false) {
+            error!("Failed to publish raw input messages: {}", e);
+            self.stats.lock().unwrap().increment_mqtt_errors();
+        }
+
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages_1(&self, input_1: &ReadInput1, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/1", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_1)?, false) {
+            error!("Failed to publish raw input messages: {}", e);
+            self.stats.lock().unwrap().increment_mqtt_errors();
+        }
+
+        Ok(())
+    }
+
+    async fn publish_hold_message(&self, register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        for (reg, value) in pairs {
+            let topic = format!("{}/hold/{}", inverter.datalog, reg);
+            if let Err(e) = self.publish_message(topic, value.to_string(), true) {
+                error!("Failed to publish hold message: {}", e);
+                self.stats.lock().unwrap().increment_mqtt_errors();
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn publish_write_confirmation(&self, register: u16, value: u16, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        let topic = format!("{}/write/status", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, format!("OK: {} = {}", register, value), false) {
+            error!("Failed to publish write confirmation: {}", e);
+            self.stats.lock().unwrap().increment_mqtt_errors();
+        }
+
+        Ok(())
+    }
+
+    async fn publish_write_multi_confirmation(&self, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        let topic = format!("{}/write_multi/status", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, format!("OK: {:?}", pairs), false) {
+            error!("Failed to publish write multi confirmation: {}", e);
+            self.stats.lock().unwrap().increment_mqtt_errors();
+        }
+
         Ok(())
     }
 }
