@@ -207,14 +207,14 @@ impl Coordinator {
             }),
             ReadParam(_, _) => Packet::TranslatedData(TranslatedData {
                 datalog: Serial::default(),
-                device_function: DeviceFunction::ReadHold, // Using ReadHold as device function
+                device_function: DeviceFunction::ReadHold,
                 inverter: Serial::default(),
                 register: 0,
                 values: vec![],
             }),
             WriteParam(_, _, _) => Packet::TranslatedData(TranslatedData {
                 datalog: Serial::default(),
-                device_function: DeviceFunction::WriteSingle, // Using WriteSingle as device function
+                device_function: DeviceFunction::WriteSingle,
                 inverter: Serial::default(),
                 register: 0,
                 values: vec![],
@@ -466,11 +466,7 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn process_inverter_packet(
-        &self,
-        packet: Packet,
-        inputs_store: &mut InputsStore,
-    ) -> Result<()> {
+    async fn process_inverter_packet(&self, packet: Packet) -> Result<()> {
         debug!("RX: {:?}", packet);
 
         // Update packet stats first
@@ -518,124 +514,82 @@ impl Coordinator {
             {
                 warn!("got a Param packet! {:?}", td);
             }
-        }
 
-        // inputs_store handling. If we've received any ReadInput, update inputs_store
-        // with the contents. If we got the third (of three) packets, send out the combined
-        // MQTT message with all the data.
-        match packet {
-            Packet::Heartbeat(_) => Ok(()), // nothing to do
-            Packet::TranslatedData(td) => {
-                let entry = inputs_store
-                    .entry(td.datalog)
-                    .or_insert_with(lxp::packet::ReadInputs::default);
+            match td.device_function {
+                DeviceFunction::ReadInput => {
+                    let register_map = td.register_map();
+                    let parser = lxp::register_parser::Parser::new(register_map.clone());
+                    let parsed_inputs = parser.parse_inputs()?;
 
-                match td.device_function {
-                    DeviceFunction::ReadInput => match td.read_input() {
-                        Ok(ReadInput::ReadInputAll(r_all)) => {
-                            debug!("Received ReadInputAll, saving to InfluxDB");
-                            self.save_input_all(r_all).await?;
-                        }
-                        Ok(ReadInput::ReadInput1(r1)) => {
-                            debug!("Received ReadInput1");
-                            entry.set_read_input_1(r1)
-                        }
-                        Ok(ReadInput::ReadInput2(r2)) => {
-                            debug!("Received ReadInput2");
-                            entry.set_read_input_2(r2)
-                        }
-                        Ok(ReadInput::ReadInput3(r3)) => {
-                            debug!("Received ReadInput3");
-                            entry.set_read_input_3(r3)
-                        }
-                        Ok(ReadInput::ReadInput4(r4)) => {
-                            debug!("Received ReadInput4");
-                            let datalog = r4.datalog;
-                            entry.set_read_input_4(r4);
+                    if self.config.mqtt().enabled() {
+                        // individual message publishing, raw and parsed
+                        self.publish_raw_input_messages(td)?;
+                        self.publish_parsed_input_messages(td, &parsed_inputs)?;
 
-                            if let Some(input) = entry.to_input_all() {
-                                info!("Assembled complete input set, saving to InfluxDB");
-                                if self.config.mqtt().enabled() {
-                                    match mqtt::Message::for_input_all(&input, datalog) {
-                                        Ok(message) => {
-                                            let channel_data = mqtt::ChannelData::Message(message);
-                                            match self.channels.to_mqtt.send(channel_data) {
-                                                Ok(_) => {
-                                                    if let Ok(mut stats) = self.stats.lock() {
-                                                        stats.mqtt_messages_sent += 1;
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!("Failed to send MQTT message: {}", e);
-                                                    if let Ok(mut stats) = self.stats.lock() {
-                                                        stats.mqtt_errors += 1;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to create MQTT message: {}", e);
-                                            if let Ok(mut stats) = self.stats.lock() {
-                                                stats.mqtt_errors += 1;
-                                            }
-                                        }
+                        // inputs/1/2/3/4
+                        if let Some(topic_fragment) = parser.guess_legacy_inputs_topic() {
+                            self.publish_combined_parsed_input_message(
+                                td,
+                                &parsed_inputs,
+                                topic_fragment,
+                            )?;
+                        };
+                    }
+
+                    for (register, value) in register_map {
+                        self.cache_register(register_cache::Register::Input(register), value)?;
+                    }
+
+                    // if we've seen the triggering register in config.publish_inputs_all_trigger
+                    // then feed contents of cache_register into a new parser;
+                    // which should get us "all". feed that to mqtt+influx
+                    if parser.contains_register(self.config.publish_inputs_all_trigger()) {
+                        let cache = register_cache::RegisterCache::dump(
+                            &self.channels,
+                            register_cache::AllRegisters::Input,
+                        )
+                        .await;
+                        let all_parser = lxp::register_parser::Parser::new(cache);
+                        if all_parser.guess_legacy_inputs_topic() == Some("all") {
+                            let all_parsed_inputs = all_parser.parse_inputs()?;
+                            if self.config.mqtt().enabled() {
+                                // inputs/all
+                                self.publish_combined_parsed_input_message(
+                                    td,
+                                    &all_parsed_inputs,
+                                    "all",
+                                )?;
+                            }
+                            if self.config.influx().enabled() {
+                                let channel_data = influx::ChannelData::InputData(
+                                    td.datalog(),
+                                    all_parsed_inputs.clone(),
+                                );
+                                if self.channels.to_influx.send(channel_data).is_err() {
+                                    if let Ok(mut stats) = self.stats.lock() {
+                                        stats.influx_errors += 1;
                                     }
+                                    bail!("send(to_influx) failed - channel closed?");
                                 }
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.influx_writes += 1;
+                                }
+                            }
+                        };
 
-                                self.save_input_all(Box::new(input)).await?;
-                            } else {
-                                debug!("Incomplete input set, waiting for more data");
-                            }
-                        }
-                        Err(x) => warn!("ignoring {:?}", x),
-                    },
-                    DeviceFunction::ReadHold | DeviceFunction::WriteSingle => {
-                        let channel_data = register_cache::ChannelData::RegisterData(td.register, td.value());
-                        match self.channels.to_register_cache.send(channel_data) {
-                            Ok(_) => {
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.register_cache_writes += 1;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to send to register cache: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.register_cache_errors += 1;
-                                }
-                            }
-                        }
+                        // clear the cache so we start over next time
+                        register_cache::RegisterCache::clear(&self.channels).await;
+                    }
+                }
+                DeviceFunction::ReadHold | DeviceFunction::WriteSingle => {
+                    let register_map = td.register_map();
 
-                        // Send the value message first
-                        if self.config.mqtt().enabled() {
-                            let value_message = mqtt::Message {
-                                topic: format!("{}/hold/{}", td.datalog, td.register),
-                                retain: true,
-                                payload: td.value().to_string(),
-                            };
-                            if let Err(e) = self.channels.to_mqtt.send(mqtt::ChannelData::Message(value_message)) {
-                                error!("Failed to send value MQTT message: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            } else if let Ok(mut stats) = self.stats.lock() {
-                                stats.mqtt_messages_sent += 1;
-                            }
+                    let parser = lxp::register_parser::Parser::new(register_map.clone());
+                    let parsed_holds = parser.parse_holds()?;
 
-                            // Then send the OK message
-                            let ok_message = mqtt::Message {
-                                topic: format!("result/{}/read/hold/{}", td.datalog, td.register),
-                                retain: false,
-                                payload: "OK".to_string(),
-                            };
-                            if let Err(e) = self.channels.to_mqtt.send(mqtt::ChannelData::Message(ok_message)) {
-                                error!("Failed to send OK MQTT message: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            } else if let Ok(mut stats) = self.stats.lock() {
-                                stats.mqtt_messages_sent += 1;
-                            }
-                        }
+                    if self.config.mqtt().enabled() {
+                        self.publish_raw_hold_messages(td)?;
+                        self.publish_parsed_hold_messages(td, &parsed_holds)?;
 
                         // Send to InfluxDB if enabled
                         if self.config.influx().enabled() {
@@ -662,85 +616,34 @@ impl Coordinator {
                             }
                         }
                     }
-                    _ => {}
-                }
 
-                if self.config.mqtt().enabled() {
-                    // Process any individual input messages if enabled
-                    if self.config.mqtt().publish_individual_input() {
-                        match mqtt::Message::for_input(td, true) {
-                            Ok(messages) => {
-                                for message in messages {
-                                    let channel_data = mqtt::ChannelData::Message(message);
-                                    match self.channels.to_mqtt.send(channel_data) {
-                                        Ok(_) => {
-                                            if let Ok(mut stats) = self.stats.lock() {
-                                                stats.mqtt_messages_sent += 1;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to send individual MQTT message: {}", e);
-                                            if let Ok(mut stats) = self.stats.lock() {
-                                                stats.mqtt_errors += 1;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to create individual MQTT message: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
+                    if td.device_function == DeviceFunction::WriteSingle {
+                        let inverter = self.inverter_config_for_datalog(td.datalog)?;
+                        // if register_map contains an interesting register that's
+                        // part of a multi-register setup (like AC Charge times) then
+                        // issue a ReadHold request to get the other parts so register_parser
+                        // can construct an MQTT message to send out with current data
+                        self.maybe_send_read_holds(register_map, inverter).await?;
                     }
                 }
-
-                Ok(())
+                DeviceFunction::WriteMulti => {}
             }
-            _ => Ok(()),
         }
+
+        Ok(())
     }
 
-    async fn save_input_all(&self, input: Box<lxp::packet::ReadInputAll>) -> Result<()> {
-        if self.config.influx().enabled() {
-            debug!("InfluxDB is enabled, attempting to save data");
-            let json = serde_json::to_value(&input)?;
-            debug!("Serialized data for InfluxDB: {:?}", json);
-            match self.channels.to_influx.send(influx::ChannelData::InputData(json)) {
-                Ok(_) => {
-                    debug!("Successfully sent data to InfluxDB channel");
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.influx_writes += 1;
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to send data to InfluxDB: {}", e);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.influx_errors += 1;
-                    }
-                }
-            }
-        }
+    fn cache_register(&self, register: register_cache::Register, value: u16) -> Result<()> {
+        let channel_data = register_cache::ChannelData::RegisterData(register, value);
 
-        if self.config.have_enabled_database() {
-            let channel_data = database::ChannelData::ReadInputAll(input);
-            match self.channels.to_database.send(channel_data) {
-                Ok(_) => {
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.database_writes += 1;
-                    }
-                }
-                Err(e) => {
-                    // log error but avoid exiting loop as then we stop handling
-                    // incoming packets. need better error handling here maybe?
-                    error!("Failed to send to database: {}", e);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.database_errors += 1;
-                    }
-                }
+        if self.channels.register_cache.send(channel_data).is_err() {
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.register_cache_errors += 1;
             }
+            bail!("send(to_register_cache) failed - channel closed?");
+        }
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.register_cache_writes += 1;
         }
 
         Ok(())
@@ -756,7 +659,7 @@ impl Coordinator {
         loop {
             match receiver.recv().await? {
                 Packet(packet) => {
-                    if let Err(e) = self.process_inverter_packet(packet, &mut inputs_store).await {
+                    if let Err(e) = self.process_inverter_packet(packet).await {
                         warn!("Failed to process packet: {}", e);
                     }
                 }
@@ -870,6 +773,25 @@ impl Coordinator {
             .await?;
         }
 
+        Ok(())
+    }
+
+    fn publish_message(&self, topic: String, payload: String, retain: bool) -> Result<()> {
+        let m = mqtt::Message {
+            topic,
+            payload,
+            retain,
+        };
+        let channel_data = mqtt::ChannelData::Message(m);
+        if self.channels.to_mqtt.send(channel_data).is_err() {
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+            bail!("send(to_mqtt) failed - channel closed?");
+        }
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.mqtt_messages_sent += 1;
+        }
         Ok(())
     }
 }
