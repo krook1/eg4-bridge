@@ -218,7 +218,19 @@ pub struct ReadInputAll {
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_eps_l2_all: f64,
 
-    // EPS data; unsure what this is
+    // Additional EPS values
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_eps_l2: f64,
+    #[nom(Parse = "Utils::le_u16_div1000")]
+    pub pf_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div1000")]
+    pub pf_eps_l2: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub f_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub f_eps_l2: f64,
 
     // following are for influx capability only
     #[nom(Parse = "Utils::current_time_for_nom")]
@@ -510,6 +522,40 @@ pub struct ReadInput3 {
     #[nom(Parse = "Utils::le_u16_div10")]
     pub vbat_inv: f64,
 
+    // Battery module information
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub t_bat_1: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub t_bat_2: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub t_bat_3: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub t_bat_4: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub v_bat_1: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub v_bat_2: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub v_bat_3: f64,
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub v_bat_4: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_bat_1: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_bat_2: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_bat_3: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_bat_4: f64,
+    pub soc_1: u8,
+    pub soc_2: u8,
+    pub soc_3: u8,
+    pub soc_4: u8,
+    pub soh_1: u8,
+    pub soh_2: u8,
+    pub soh_3: u8,
+    pub soh_4: u8,
+
     // following are for influx capability only
     #[nom(Parse = "Utils::current_time_for_nom")]
     pub time: UnixTime,
@@ -548,6 +594,21 @@ pub struct ReadInput4 {
     pub e_eps_l1_all: f64,
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_eps_l2_all: f64,
+
+    // Additional EPS values
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub i_eps_l2: f64,
+    #[nom(Parse = "Utils::le_u16_div1000")]
+    pub pf_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div1000")]
+    pub pf_eps_l2: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub f_eps_l1: f64,
+    #[nom(Parse = "Utils::le_u16_div100")]
+    pub f_eps_l2: f64,
+
     // EPS data; unsure what this is
     #[nom(Ignore)]
     pub datalog: Serial,
@@ -689,6 +750,12 @@ impl ReadInputs {
                     e_eps_l2_day: ri4.e_eps_l2_day,
                     e_eps_l1_all: ri4.e_eps_l1_all,
                     e_eps_l2_all: ri4.e_eps_l2_all,
+                    i_eps_l1: ri4.i_eps_l1,
+                    i_eps_l2: ri4.i_eps_l2,
+                    pf_eps_l1: ri4.pf_eps_l1,
+                    pf_eps_l2: ri4.pf_eps_l2,
+                    f_eps_l1: ri4.f_eps_l1,
+                    f_eps_l2: ri4.f_eps_l2,
                     datalog: ri1.datalog,
                     time: ri1.time.clone(),
                 };
