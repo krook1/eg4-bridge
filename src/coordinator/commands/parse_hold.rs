@@ -171,6 +171,138 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         65 => format!("System Discharge Rate: {}%", value),
         66 => format!("Grid Charge Power Rate: {}%", value),
         67 => format!("AC Charge SOC Limit: {}%", value),
+        68 => format!("AC Charge Start Minute: {} (0-59)", value),
+        69 => format!("AC Charge End Minute: {} (0-59)", value),
+
+        // Charging Priority Settings (74-79)
+        74 => format!("Charging Priority Percentage: {}%", value),
+        75 => format!("Charging Priority SOC Limit: {}%", value),
+        76 => format!("Charging Priority Start Minute: {} (0-59)", value),
+        77 => format!("Charging Priority End Minute: {} (0-59)", value),
+        78 => format!("Charging Priority Start Hour 1: {} (0-23)", value),
+        79 => format!("Charging Priority End Hour 1: {} (0-23)", value),
+
+        // System Type and Battery Settings (80-82)
+        80 => {
+            let system_type = match value {
+                0 => "Off-grid",
+                1 => "Grid-tied",
+                2 => "Hybrid",
+                _ => "Unknown"
+            };
+            format!("System Type: {} - {}", value, system_type)
+        }
+        81 => {
+            let battery_type = match value {
+                0 => "Lead-acid",
+                1 => "Lithium",
+                _ => "Unknown"
+            };
+            format!("Battery Type: {} - {}", value, battery_type)
+        }
+        82 => format!("Battery Capacity: {} Ah", value),
+
+        // Grid Settings (83-84)
+        83 => {
+            let voltage_level = match value {
+                0 => "220V",
+                1 => "380V",
+                _ => "Unknown"
+            };
+            format!("Grid Voltage Level: {} - {}", value, voltage_level)
+        }
+        84 => {
+            let frequency = match value {
+                0 => "50Hz",
+                1 => "60Hz",
+                _ => "Unknown"
+            };
+            format!("Grid Frequency: {} - {}", value, frequency)
+        },
+
+        // PV Settings (85-86)
+        85 => format!("PV1 Power Rating: {:.1} kW", (value as f64) / 10.0),
+        86 => format!("PV2 Power Rating: {:.1} kW", (value as f64) / 10.0),
+
+        // Inverter Settings (87-88)
+        87 => format!("Inverter Power Rating: {:.1} kW", (value as f64) / 10.0),
+        88 => format!("Inverter Efficiency: {:.1}%", (value as f64) / 10.0),
+
+        // Battery Settings (89-90)
+        89 => format!("Battery Nominal Voltage: {:.1} V", (value as f64) / 10.0),
+        90 => format!("Battery Nominal Capacity: {:.1} kWh", (value as f64) / 10.0),
+
+        // System Settings (91-92)
+        91 => {
+            let system_mode = match value {
+                0 => "Normal",
+                1 => "Backup",
+                2 => "ECO",
+                _ => "Unknown"
+            };
+            format!("System Mode: {} - {}", value, system_mode)
+        }
+        92 => {
+            let priority = match value {
+                0 => "Battery",
+                1 => "Grid",
+                2 => "PV",
+                _ => "Unknown"
+            };
+            format!("System Priority: {} - {}", value, priority)
+        },
+
+        // Time Settings (93-94)
+        93 => format!("Time Zone: UTC{}", if value > 0 { format!("+{}", value) } else { value.to_string() }),
+        94 => {
+            let dst = match value {
+                0 => "Off",
+                1 => "On",
+                _ => "Unknown"
+            };
+            format!("Daylight Saving Time: {} - {}", value, dst)
+        },
+
+        // Communication Settings (95-96)
+        95 => {
+            let protocol = match value {
+                0 => "Modbus",
+                1 => "RS485",
+                _ => "Unknown"
+            };
+            format!("Communication Protocol: {} - {}", value, protocol)
+        }
+        96 => {
+            let baud_rate = match value {
+                0 => "9600",
+                1 => "19200",
+                2 => "38400",
+                _ => "Unknown"
+            };
+            format!("Communication Baud Rate: {} - {}", value, baud_rate)
+        },
+
+        // Alarm Settings (97-98)
+        97 => {
+            let alarm_enable = match value {
+                0 => "Off",
+                1 => "On",
+                _ => "Unknown"
+            };
+            format!("Alarm Enable: {} - {}", value, alarm_enable)
+        }
+        98 => format!("Alarm Delay: {} seconds", value),
+
+        // Maintenance Settings (99-100)
+        99 => {
+            let maintenance_mode = match value {
+                0 => "Off",
+                1 => "On",
+                _ => "Unknown"
+            };
+            format!("Maintenance Mode: {} - {}", value, maintenance_mode)
+        }
+        100 => format!("Maintenance Time: {} minutes", value),
 
         // AC Charge Settings (160-161)
         160 => format!("AC Charge Start SOC: {}%", value),

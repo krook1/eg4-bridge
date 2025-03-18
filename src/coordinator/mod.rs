@@ -122,7 +122,7 @@ impl Coordinator {
 
     pub async fn start(&self) -> Result<()> {
         if self.config.mqtt().enabled() {
-            futures::try_join!(self.inverter_receiver(), self.mqtt_receiver())?;
+        futures::try_join!(self.inverter_receiver(), self.mqtt_receiver())?;
         } else {
             self.inverter_receiver().await?;
         }
@@ -131,26 +131,9 @@ impl Coordinator {
     }
 
     pub fn stop(&self) {
-        // Print final statistics
-        if let Ok(stats) = self.stats.lock() {
-            info!("Final Statistics:");
-            stats.print_summary();
-        } else {
-            error!("Could not acquire lock to print statistics");
-        }
-
-        // Send shutdown signals to channels
-        let _ = self
-            .channels
-            .from_inverter
-            .send(lxp::inverter::ChannelData::Shutdown);
-
-        if self.config.mqtt().enabled() {
-            let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
-        }
-
-        // Give a moment for the statistics to be printed
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        info!("Stopping coordinator...");
+        let _ = self.channels.to_inverter.send(lxp::inverter::ChannelData::Shutdown);
+        let _ = self.channels.to_mqtt.send(mqtt::ChannelData::Shutdown);
     }
 
     async fn mqtt_receiver(&self) -> Result<()> {
@@ -175,14 +158,14 @@ impl Coordinator {
                     info!("parsed command {:?}", command);
                     let result = self.process_command(command.clone()).await;
                     if result.is_err() {
-                        let topic_reply = command.to_result_topic();
-                        let reply = mqtt::ChannelData::Message(mqtt::Message {
-                            topic: topic_reply,
-                            retain: false,
+                    let topic_reply = command.to_result_topic();
+                    let reply = mqtt::ChannelData::Message(mqtt::Message {
+                        topic: topic_reply,
+                        retain: false,
                             payload: "FAIL".to_string(),
-                        });
-                        if self.channels.to_mqtt.send(reply).is_err() {
-                            bail!("send(to_mqtt) failed - channel closed?");
+                    });
+                    if self.channels.to_mqtt.send(reply).is_err() {
+                        bail!("send(to_mqtt) failed - channel closed?");
                         }
                     }
                 }
@@ -339,9 +322,9 @@ impl Coordinator {
         U: Into<u16>,
     {
         commands::read_inputs::ReadInputs::new(self.channels.clone(), inverter.clone(), register, count)
-            .run()
-            .await?;
-        
+        .run()
+        .await?;
+
         // Add delay after read operation
         tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())
@@ -352,9 +335,9 @@ impl Coordinator {
         U: Into<u16>,
     {
         commands::read_hold::ReadHold::new(self.channels.clone(), inverter.clone(), register, count)
-            .run()
-            .await?;
-        
+        .run()
+        .await?;
+
         // Add delay after read operation
         tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())
@@ -367,7 +350,7 @@ impl Coordinator {
         commands::read_param::ReadParam::new(self.channels.clone(), inverter.clone(), register)
             .run()
             .await?;
-        
+
         // Add delay after read operation
         tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())

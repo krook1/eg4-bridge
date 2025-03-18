@@ -18,6 +18,48 @@ const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::prelude::*;
 
+// Helper struct to manage component shutdown
+#[derive(Clone)]
+pub struct Components {
+    coordinator: Coordinator,
+    mqtt: Mqtt,
+    influx: Influx,
+    inverters: Vec<Inverter>,
+    databases: Vec<Database>,
+    channels: Channels,
+}
+
+impl Components {
+    fn stop(mut self) {
+        // First send shutdown signals to all components
+        info!("Sending shutdown signals...");
+        let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
+        let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
+        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
+        
+        // Give a moment for shutdown signals to be processed
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Print final statistics
+        if let Ok(stats) = self.coordinator.stats.lock() {
+            info!("Final Statistics:");
+            stats.print_summary();
+        }
+
+        // Now stop all components
+        info!("Stopping components...");
+        for inverter in self.inverters {
+            inverter.stop();
+        }
+        for database in self.databases {
+            database.stop();
+        }
+        self.mqtt.stop();
+        self.influx.stop();
+        self.coordinator.stop();
+    }
+}
+
 pub async fn app() -> Result<()> {
     let options = Options::new();
 
@@ -113,48 +155,6 @@ pub async fn app() -> Result<()> {
     info!("Shutdown complete");
 
     app_result
-}
-
-// Helper struct to manage component shutdown
-#[derive(Clone)]
-struct Components {
-    coordinator: Coordinator,
-    mqtt: Mqtt,
-    influx: Influx,
-    inverters: Vec<Inverter>,
-    databases: Vec<Database>,
-    channels: Channels,
-}
-
-impl Components {
-    fn stop(mut self) {
-        // Print statistics before shutdown
-        if let Ok(stats) = self.coordinator.stats.lock() {
-            info!("Final Statistics:");
-            stats.print_summary();
-        }
-
-        // First send shutdown signals to all components
-        info!("Sending shutdown signals...");
-        let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
-        let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
-        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
-        
-        // Give a moment for shutdown signals to be processed and statistics to be printed
-        std::thread::sleep(std::time::Duration::from_secs(1));
-
-        // Now stop all components
-        info!("Stopping components...");
-        for inverter in self.inverters {
-            inverter.stop();
-        }
-        for database in self.databases {
-            database.stop();
-        }
-        self.mqtt.stop();
-        self.influx.stop();
-        self.coordinator.stop();
-    }
 }
 
 async fn start_databases(databases: Vec<Database>) -> Result<()> {
