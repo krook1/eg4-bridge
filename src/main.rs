@@ -1,9 +1,13 @@
 use anyhow::Result;
 use log::{error, info};
 use tokio::signal::unix::{signal, SignalKind};
+use tokio::sync::oneshot;
 
 #[tokio::main]
 async fn main() {
+    // Create a shutdown channel that will be used by both paths
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    
     tokio::select! {
         result = lxp_bridge::app() => {
             if let Err(err) = result {
@@ -11,7 +15,9 @@ async fn main() {
                 std::process::exit(255);
             }
         }
-        _ = cancel_on_int_or_term() => {
+        _ = handle_signals(shutdown_tx) => {
+            // Wait for the app to complete its shutdown sequence
+            let _ = shutdown_rx.await;
         }
     }
 }
@@ -19,7 +25,7 @@ async fn main() {
 /// Provides a future that will terminate once a SIGINT or SIGTERM is
 /// received from the host. Allows the process to be terminated
 /// cleanly when running in a container (particularly Kubernetes).
-async fn cancel_on_int_or_term() -> Result<()> {
+async fn handle_signals(shutdown_tx: oneshot::Sender<()>) -> Result<()> {
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
 
@@ -32,5 +38,7 @@ async fn cancel_on_int_or_term() -> Result<()> {
         },
     }
 
+    // Send shutdown signal to trigger proper cleanup
+    let _ = shutdown_tx.send(());
     Ok(())
 }

@@ -1,15 +1,10 @@
 use crate::prelude::*;
-
-use lxp::{
-    inverter::WaitForReply,
-    packet::{DeviceFunction, TranslatedData},
-};
+use crate::coordinator::Channels;
+use crate::config;
+use lxp::packet::{DeviceFunction, TranslatedData, Packet};
+use lxp::inverter::WaitForReply;
 
 use super::validation::validate_register_block_boundary;
-use tokio::time::sleep;
-use std::time::Duration;
-
-const BLOCK_SIZE: u16 = 40;
 
 pub struct ReadHold {
     channels: Channels,
@@ -54,13 +49,6 @@ impl ReadHold {
             bail!("send(to_inverter) failed - channel closed?");
         }
 
-        let result = receiver.wait_for_reply(&packet).await;
-
-        // Add delay after read operation
-        let delay_ms = self.inverter.delay_ms();
-        info!("Sleeping for {}ms after read hold operation", delay_ms);
-        sleep(Duration::from_millis(delay_ms)).await;
-
-        result
+        receiver.wait_for_reply(&packet).await
     }
 }

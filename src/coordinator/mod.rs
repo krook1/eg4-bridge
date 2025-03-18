@@ -783,9 +783,24 @@ impl Coordinator {
                             62 => info!("  Register {:3} (Power Factor Command): {:.3} - Power factor command", reg, (*value as f64) / 1000.0),
                             63 => info!("  Register {:3} (Power Soft Start Slope): {} - Power soft start slope", reg, value),
                             
+                            // BMS registers (153-169)
+                            153 => info!("  Register {:3} (BMS Status): {:#06x} - Battery management system status flags", reg, value),
+                            154 => info!("  Register {:3} (BMS Pack Voltage): {:.2} V - Total battery pack voltage", reg, (*value as f64) / 100.0),
+                            155 => info!("  Register {:3} (BMS Pack Current): {:.2} A - Total battery pack current", reg, (*value as f64) / 100.0),
+                            156 => info!("  Register {:3} (BMS SOC): {}% - Battery state of charge from BMS", reg, value),
+                            157 => info!("  Register {:3} (BMS Cell Temperature 1): {:.1} °C - Temperature of cell group 1", reg, (*value as f64) / 10.0),
+                            158 => info!("  Register {:3} (BMS Cell Temperature 2): {:.1} °C - Temperature of cell group 2", reg, (*value as f64) / 10.0),
+                            159 => info!("  Register {:3} (BMS Cell Temperature 3): {:.1} °C - Temperature of cell group 3", reg, (*value as f64) / 10.0),
+                            162 => info!("  Register {:3} (BMS Cell Voltage 2): {:.3} V - Voltage of cell 2", reg, (*value as f64) / 1000.0),
+                            163 => info!("  Register {:3} (BMS Cell Voltage 3): {:.3} V - Voltage of cell 3", reg, (*value as f64) / 1000.0),
+                            164 => info!("  Register {:3} (BMS Cell Voltage 4): {:.3} V - Voltage of cell 4", reg, (*value as f64) / 1000.0),
+                            165 => info!("  Register {:3} (BMS Cell Voltage 5): {:.3} V - Voltage of cell 5", reg, (*value as f64) / 1000.0),
+                            166 => info!("  Register {:3} (BMS Cell Voltage 6): {:.3} V - Voltage of cell 6", reg, (*value as f64) / 1000.0),
+                            167 => info!("  Register {:3} (BMS Cell Voltage 7): {:.3} V - Voltage of cell 7", reg, (*value as f64) / 1000.0),
+                            168 => info!("  Register {:3} (BMS Cell Voltage 8): {:.3} V - Voltage of cell 8", reg, (*value as f64) / 1000.0),
+                            169 => info!("  Register {:3} (BMS Cell Voltage 9): {:.3} V - Voltage of cell 9", reg, (*value as f64) / 1000.0),
+
                             // AutoTest registers (170-175)
-                            // These registers control and monitor the automatic grid compliance testing
-                            // functionality of the inverter
                             170 => info!("  Register {:3} (AutoTest Command): {} - Command register for AutoTest", reg, value),
                             171 => {
                                 let status = (value >> 0) & 0xF;
@@ -825,6 +840,58 @@ impl Coordinator {
                                     if (*reg >= 171 && *reg <= 172) || (*reg >= 175 && *reg <= 176) { "V" } else { "Hz" });
                             },
                             175 => info!("  Register {:3} (AutoTest Trip Time): {} ms - Actual time until trip occurred", reg, value),
+
+                            // BMS registers (176-198)
+                            176 => info!("  Register {:3} (BMS Cell Voltage 16): {:.3} V - Voltage of cell 16", reg, (*value as f64) / 1000.0),
+                            177 => info!("  Register {:3} (BMS Cell Resistance 1): {:.3} mΩ - Internal resistance of cell 1", reg, (*value as f64) / 1000.0),
+                            178 => info!("  Register {:3} (BMS Cell Resistance 2): {:.3} mΩ - Internal resistance of cell 2", reg, (*value as f64) / 1000.0),
+                            179 => info!("  Register {:3} (BMS Cell Resistance 3): {:.3} mΩ - Internal resistance of cell 3", reg, (*value as f64) / 1000.0),
+                            180 => info!("  Register {:3} (BMS Cell Resistance 4): {:.3} mΩ - Internal resistance of cell 4", reg, (*value as f64) / 1000.0),
+                            181 => info!("  Register {:3} (BMS Cell Resistance 5): {:.3} mΩ - Internal resistance of cell 5", reg, (*value as f64) / 1000.0),
+                            182 => info!("  Register {:3} (BMS Cell Resistance 6): {:.3} mΩ - Internal resistance of cell 6", reg, (*value as f64) / 1000.0),
+                            183 => info!("  Register {:3} (BMS Cell Resistance 7): {:.3} mΩ - Internal resistance of cell 7", reg, (*value as f64) / 1000.0),
+                            184 => info!("  Register {:3} (BMS Cell Resistance 8): {:.3} mΩ - Internal resistance of cell 8", reg, (*value as f64) / 1000.0),
+                            185 => info!("  Register {:3} (BMS Cell Resistance 9): {:.3} mΩ - Internal resistance of cell 9", reg, (*value as f64) / 1000.0),
+                            186 => info!("  Register {:3} (BMS Cell Resistance 10): {:.3} mΩ - Internal resistance of cell 10", reg, (*value as f64) / 1000.0),
+                            187 => info!("  Register {:3} (BMS Cell Resistance 11): {:.3} mΩ - Internal resistance of cell 11", reg, (*value as f64) / 1000.0),
+                            188 => info!("  Register {:3} (BMS Cell Resistance 12): {:.3} mΩ - Internal resistance of cell 12", reg, (*value as f64) / 1000.0),
+                            189 => info!("  Register {:3} (BMS Cell Resistance 13): {:.3} mΩ - Internal resistance of cell 13", reg, (*value as f64) / 1000.0),
+                            190 => info!("  Register {:3} (BMS Cell Resistance 14): {:.3} mΩ - Internal resistance of cell 14", reg, (*value as f64) / 1000.0),
+                            191 => info!("  Register {:3} (BMS Cell Resistance 15): {:.3} mΩ - Internal resistance of cell 15", reg, (*value as f64) / 1000.0),
+                            192 => info!("  Register {:3} (BMS Cell Resistance 16): {:.3} mΩ - Internal resistance of cell 16", reg, (*value as f64) / 1000.0),
+                            193 => {
+                                let mut flags = Vec::new();
+                                if value & (1 << 0) != 0 { flags.push("Cell Overvoltage"); }
+                                if value & (1 << 1) != 0 { flags.push("Cell Undervoltage"); }
+                                if value & (1 << 2) != 0 { flags.push("Pack Overvoltage"); }
+                                if value & (1 << 3) != 0 { flags.push("Pack Undervoltage"); }
+                                if value & (1 << 4) != 0 { flags.push("Charging Overcurrent"); }
+                                if value & (1 << 5) != 0 { flags.push("Discharging Overcurrent"); }
+                                if value & (1 << 6) != 0 { flags.push("Cell Temperature High"); }
+                                if value & (1 << 7) != 0 { flags.push("Cell Temperature Low"); }
+                                if value & (1 << 8) != 0 { flags.push("Cell Imbalance"); }
+                                if value & (1 << 9) != 0 { flags.push("Internal Error"); }
+                                info!("  Register {:3} (BMS Alarm Status): {:#06x}", reg, value);
+                                let flag_str = if flags.is_empty() { 
+                                    "None".to_string() 
+                                } else { 
+                                    flags.join(", ") 
+                                };
+                                info!("    Active alarms: {}", flag_str);
+                            },
+                            194 => info!("  Register {:3} (BMS Warning Status): {:#06x} - Battery warning status flags", reg, value),
+                            195 => info!("  Register {:3} (BMS Protection Status): {:#06x} - Battery protection status flags", reg, value),
+                            196 => {
+                                let major = value >> 8;
+                                let minor = value & 0xFF;
+                                info!("  Register {:3} (BMS Software Version): {}.{} - BMS firmware version", reg, major, minor);
+                            },
+                            197 => {
+                                let major = value >> 8;
+                                let minor = value & 0xFF;
+                                info!("  Register {:3} (BMS Hardware Version): {}.{} - BMS hardware version", reg, major, minor);
+                            },
+                            198 => info!("  Register {:3} (BMS Maximum Cell Difference): {:.3} V - Maximum voltage difference between cells", reg, (*value as f64) / 1000.0),
 
                             // Default case for unknown registers
                             _ => info!("  Register {:3}: {}", reg, value),

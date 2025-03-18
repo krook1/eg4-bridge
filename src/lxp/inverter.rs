@@ -266,6 +266,11 @@ impl Inverter {
 
                 // Wait for socket data with timeout
                 read_result = async {
+                    // Add delay before read operation
+                    let delay_ms = inverter_config.delay_ms();
+                    debug!("Sleeping for {}ms before read operation", delay_ms);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
                     if inverter_config.read_timeout() > 0 {
                         timeout(
                             Duration::from_secs(inverter_config.read_timeout() * READ_TIMEOUT_SECS),
