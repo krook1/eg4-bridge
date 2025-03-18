@@ -31,8 +31,8 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 value)
         }
         7 => format!("Firmware Version Code: {}", value),
-        9 => format!("Slave CPU Version (Redundant): {}", value),
-        10 => format!("Control CPU Version: {}", value),
+        9 => format!("Slave CPU Version (Redundant): {} (0-255)", value),
+        10 => format!("Control CPU Version: {} (0-255)", value),
         11 => {
             let mut settings = Vec::new();
             if value & (1 << 0) != 0 { settings.push("Energy Record Clear"); }
@@ -43,12 +43,20 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             if value & (1 << 5) != 0 { settings.push("BMS Charge Switch On"); }
             if value & (1 << 6) != 0 { settings.push("BMS Discharge Switch On"); }
             if value & (1 << 7) != 0 { settings.push("Inverter Reboot"); }
+            if value & (1 << 8) != 0 { settings.push("Reserved"); }
+            if value & (1 << 9) != 0 { settings.push("Reserved"); }
+            if value & (1 << 10) != 0 { settings.push("Reserved"); }
+            if value & (1 << 11) != 0 { settings.push("Reserved"); }
+            if value & (1 << 12) != 0 { settings.push("Reserved"); }
+            if value & (1 << 13) != 0 { settings.push("Reserved"); }
+            if value & (1 << 14) != 0 { settings.push("Reserved"); }
+            if value & (1 << 15) != 0 { settings.push("Reserved"); }
             format!("Reset Settings: {:#018b}\nActive settings: {}", value, settings.join(", "))
         }
         12 => {
             let month = value >> 8;
             let year = value & 0xFF;
-            format!("Date: Month={} (1-12), Year=20{:02} (17-255)", month, year)
+            format!("Time: Month={} (1-12), Year=20{:02} (17-255)", month, year)
         }
         13 => {
             let hour = value >> 8;

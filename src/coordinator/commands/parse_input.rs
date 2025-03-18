@@ -15,12 +15,8 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         1 => format!("PV1 Voltage (Vpv1): {:.1} V", (value as f64) / 10.0),
         2 => format!("PV2 Voltage (Vpv2): {:.1} V", (value as f64) / 10.0),
         3 => format!("PV3 Voltage (Vpv3): {:.1} V", (value as f64) / 10.0),
-        4 => {
-            let voltage = (value as f64) / 10.0;
-            let soc = value.min(100);
-            format!("Battery Voltage: {:.1} V\nBattery SOC: {}%", voltage, soc)
-        },
-        5 => format!("Battery SOH (State of Health): {}%", value.min(100)),
+        4 => format!("Battery Voltage (Vbat): {:.1} V", (value as f64) / 10.0),
+        5 => format!("State of Charge (SOC): {}%", value.min(100)),
         6 => format!("Internal Fault: {:#06x} (See Internal DTC Definitions)", value),
         7 => format!("PV1 Power (Ppv1): {} W", value),
         8 => format!("PV2 Power (Ppv2): {} W", value),
@@ -96,10 +92,10 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         61 => format!("Fault Code High Word (FaultCode H): {:#06x}", value),
         62 => format!("Warning Code Low Word (WarningCode L): {:#06x}", value),
         63 => format!("Warning Code High Word (WarningCode H): {:#06x}", value),
-        64 => format!("Internal Ring Temperature (Tinner): {} °C", value),
-        65 => format!("Radiator Temperature 1 (Tradiator1): {} °C", value),
-        66 => format!("Radiator Temperature 2 (Tradiator2): {} °C", value),
-        67 => format!("Battery Temperature (Tbat): {} °C", value),
+        64 => format!("Internal Ring Temperature (Tinner): {} °C", value as i16),
+        65 => format!("Radiator Temperature 1 (Tradiator1): {} °C", value as i16),
+        66 => format!("Radiator Temperature 2 (Tradiator2): {} °C", value as i16),
+        67 => format!("Battery Temperature (Tbat): {} °C", value as i16),
 
         // Runtime and AutoTest Status (68-75)
         68 => format!("Reserved Register {}", reg),
@@ -231,7 +227,11 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         138 => format!("EPS L2N Total Energy High Word (EepsL2N_all H): {:.1} kWh", (value as f64) / 10.0),
 
         // AFCI Data (139-152)
-        139 => format!("Reserved Register {}", reg),
+        139 => format!("AFCI Self-Test Status: {}", match value {
+            0 => "Not Activated",
+            1 => "Activated",
+            _ => "Unknown"
+        }),
         140..=143 => format!("AFCI Current CH{} (AFCI_CurrCH{}): {} mA", reg - 139, reg - 139, value),
         144 => {
             let mut flags = Vec::new();
@@ -248,8 +248,8 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
                 if flags.is_empty() { "None".to_string() } else { flags.join(", ") }
             )
         },
-        145..=148 => format!("AFCI Arc CH{} (AFCI_ArcCH{}): {}", reg - 144, reg - 144, value),
-        149..=152 => format!("AFCI Max Arc CH{} (AFCI_MaxArcCH{}): {}", reg - 148, reg - 148, value),
+        145..=148 => format!("AFCI Max Arc CH{} (AFCI_MaxArcCH{}): {} mA", reg - 144, reg - 144, value),
+        149..=152 => format!("Reserved AFCI Register {}", reg),
 
         // Default case for unknown registers
         _ => format!("Unknown input register {}: {}", reg, value),
