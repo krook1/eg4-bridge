@@ -573,6 +573,64 @@ impl Coordinator {
                         
                         // Log register value with description if known
                         match *reg {
+                            // System Information
+                            0 => {
+                                let lithium_type = (value >> 12) & 0xF;
+                                let power_rating = (value >> 8) & 0xF;
+                                let lead_acid_type = (value >> 4) & 0xF;
+                                let battery_type = value & 0xF;
+                                info!("  Register {:3} (Model Info): {:#06x}", reg, value);
+                                info!("    Lithium Type: {}", lithium_type);
+                                info!("    Power Rating: {}", power_rating);
+                                info!("    Lead Acid Type: {}", lead_acid_type);
+                                info!("    Battery Type: {}", battery_type);
+                            },
+                            2..=6 => info!("  Register {:3} (Serial Number Part {}): {:#06x}", reg, reg - 1, value),
+                            7 => info!("  Register {:3} (Firmware Code): {}", reg, value),
+                            9 => info!("  Register {:3} (Slave Firmware Code): {}", reg, value),
+                            10 => info!("  Register {:3} (Control CPU Firmware Code): {}", reg, value),
+                            11 => {
+                                info!("  Register {:3} (Status Flags): {:#018b} - Binary format showing all status bits", reg, value);
+                                info!("    Status Flag Details:");
+                                if value & (1 << 0) != 0 { info!("    Bit  0: Grid Connected"); }
+                                if value & (1 << 1) != 0 { info!("    Bit  1: Grid Synchronization"); }
+                                if value & (1 << 2) != 0 { info!("    Bit  2: Soft Start"); }
+                                if value & (1 << 3) != 0 { info!("    Bit  3: PV Input"); }
+                                if value & (1 << 4) != 0 { info!("    Bit  4: Battery Charging"); }
+                                if value & (1 << 5) != 0 { info!("    Bit  5: Battery Discharging"); }
+                                if value & (1 << 6) != 0 { info!("    Bit  6: EPS Mode"); }
+                                if value & (1 << 7) != 0 { info!("    Bit  7: Fault Present"); }
+                                if value & (1 << 8) != 0 { info!("    Bit  8: Charging from Grid"); }
+                                if value & (1 << 9) != 0 { info!("    Bit  9: Charge Priority Active"); }
+                                if value & (1 << 10) != 0 { info!("    Bit 10: Forced Discharge Active"); }
+                                if value & (1 << 11) != 0 { info!("    Bit 11: AC Charge Active"); }
+                                if value & (1 << 12) != 0 { info!("    Bit 12: Fault Lock"); }
+                                if value & (1 << 13) != 0 { info!("    Bit 13: Battery Full"); }
+                                if value & (1 << 14) != 0 { info!("    Bit 14: Battery Empty"); }
+                                if value & (1 << 15) != 0 { info!("    Bit 15: Battery Standby"); }
+                            },
+                            12 => {
+                                let month = value >> 8;
+                                let year = value & 0xFF;
+                                info!("  Register {:3} (Date): Month={}, Year=20{:02}", reg, month, year);
+                            },
+                            13 => {
+                                let hour = value >> 8;
+                                let day = value & 0xFF;
+                                info!("  Register {:3} (Time): Hour={}, Day={}", reg, hour, day);
+                            },
+                            14 => {
+                                let second = value >> 8;
+                                let minute = value & 0xFF;
+                                info!("  Register {:3} (Time): Second={}, Minute={}", reg, second, minute);
+                            },
+                            15 => info!("  Register {:3} (Communication Address): {}", reg, value),
+                            16 => info!("  Register {:3} (Language): {}", reg, value),
+                            19 => info!("  Register {:3} (Device Type): {}", reg, value),
+                            20 => info!("  Register {:3} (PV Input Mode): {}", reg, value),
+                            23 => info!("  Register {:3} (Connect Time): {} ms - Grid connection time", reg, value),
+                            24 => info!("  Register {:3} (Reconnect Time): {} ms - Grid reconnection delay", reg, value),
+
                             // Table 8 - System Control
                             21 => {
                                 let mut flags = Vec::new();
@@ -588,6 +646,7 @@ impl Coordinator {
                                 };
                                 info!("    Active flags: {}", flag_str);
                             },
+                            22 => info!("  Register {:3} (Start PV Voltage): {:.1} V - PV voltage threshold for inverter startup", reg, (*value as f64) / 10.0),
                             64 => info!("  Register {:3} (System Charge Rate): {}% - Overall system charging power limit", reg, value),
                             65 => info!("  Register {:3} (System Discharge Rate): {}% - Overall system discharging power limit", reg, value),
                             66 => info!("  Register {:3} (Grid Charge Power Rate): {}% - Maximum power allowed for grid charging", reg, value),
@@ -647,8 +706,108 @@ impl Coordinator {
                                 };
                                 info!("  Register {:3} (System Status): {} ({})", reg, value, status)
                             },
-                            // For unknown registers, show raw value
-                            _ => info!("  Register {:3}: {} (raw value)", reg, value),
+                            // Grid Connection Limits
+                            25 => info!("  Register {:3} (Grid Connect Low Volt): {:.1} V - Lower voltage limit for grid connection", reg, (*value as f64) / 10.0),
+                            26 => info!("  Register {:3} (Grid Connect High Volt): {:.1} V - Upper voltage limit for grid connection", reg, (*value as f64) / 10.0),
+                            27 => info!("  Register {:3} (Grid Connect Low Freq): {:.2} Hz - Lower frequency limit for grid connection", reg, (*value as f64) / 100.0),
+                            28 => info!("  Register {:3} (Grid Connect High Freq): {:.2} Hz - Upper frequency limit for grid connection", reg, (*value as f64) / 100.0),
+                            
+                            // Grid Voltage Protection Level 1
+                            29 => info!("  Register {:3} (Grid Volt Limit 1 Low): {:.1} V - Level 1 lower voltage threshold", reg, (*value as f64) / 10.0),
+                            30 => info!("  Register {:3} (Grid Volt Limit 1 High): {:.1} V - Level 1 upper voltage threshold", reg, (*value as f64) / 10.0),
+                            31 => info!("  Register {:3} (Grid Volt Limit 1 Low Time): {} ms - Level 1 low voltage delay", reg, value),
+                            32 => info!("  Register {:3} (Grid Volt Limit 1 High Time): {} ms - Level 1 high voltage delay", reg, value),
+                            
+                            // Grid Voltage Protection Level 2
+                            33 => info!("  Register {:3} (Grid Volt Limit 2 Low): {:.1} V - Level 2 lower voltage threshold", reg, (*value as f64) / 10.0),
+                            34 => info!("  Register {:3} (Grid Volt Limit 2 High): {:.1} V - Level 2 upper voltage threshold", reg, (*value as f64) / 10.0),
+                            35 => info!("  Register {:3} (Grid Volt Limit 2 Low Time): {} ms - Level 2 low voltage delay", reg, value),
+                            36 => info!("  Register {:3} (Grid Volt Limit 2 High Time): {} ms - Level 2 high voltage delay", reg, value),
+                            
+                            // Grid Voltage Protection Level 3
+                            37 => info!("  Register {:3} (Grid Volt Limit 3 Low): {:.1} V - Level 3 lower voltage threshold", reg, (*value as f64) / 10.0),
+                            38 => info!("  Register {:3} (Grid Volt Limit 3 High): {:.1} V - Level 3 upper voltage threshold", reg, (*value as f64) / 10.0),
+                            39 => info!("  Register {:3} (Grid Volt Limit 3 Low Time): {} ms - Level 3 low voltage delay", reg, value),
+                            40 => info!("  Register {:3} (Grid Volt Limit 3 High Time): {} ms - Level 3 high voltage delay", reg, value),
+                            
+                            // Additional Grid Protection
+                            41 => info!("  Register {:3} (Grid Volt Moving Avg High): {:.1} V - Moving average high voltage limit", reg, (*value as f64) / 10.0),
+
+                            // Grid Frequency Protection Level 1
+                            42 => info!("  Register {:3} (Grid Freq Limit 1 Low): {:.2} Hz - Level 1 lower frequency threshold", reg, (*value as f64) / 100.0),
+                            43 => info!("  Register {:3} (Grid Freq Limit 1 High): {:.2} Hz - Level 1 upper frequency threshold", reg, (*value as f64) / 100.0),
+                            44 => info!("  Register {:3} (Grid Freq Limit 1 Low Time): {} ms - Level 1 low frequency delay", reg, value),
+                            45 => info!("  Register {:3} (Grid Freq Limit 1 High Time): {} ms - Level 1 high frequency delay", reg, value),
+
+                            // Grid Frequency Protection Level 2
+                            46 => info!("  Register {:3} (Grid Freq Limit 2 Low): {:.2} Hz - Level 2 lower frequency threshold", reg, (*value as f64) / 100.0),
+                            47 => info!("  Register {:3} (Grid Freq Limit 2 High): {:.2} Hz - Level 2 upper frequency threshold", reg, (*value as f64) / 100.0),
+                            48 => info!("  Register {:3} (Grid Freq Limit 2 Low Time): {} ms - Level 2 low frequency delay", reg, value),
+                            49 => info!("  Register {:3} (Grid Freq Limit 2 High Time): {} ms - Level 2 high frequency delay", reg, value),
+
+                            // Grid Frequency Protection Level 3
+                            50 => info!("  Register {:3} (Grid Freq Limit 3 Low): {:.2} Hz - Level 3 lower frequency threshold", reg, (*value as f64) / 100.0),
+                            51 => info!("  Register {:3} (Grid Freq Limit 3 High): {:.2} Hz - Level 3 upper frequency threshold", reg, (*value as f64) / 100.0),
+                            52 => info!("  Register {:3} (Grid Freq Limit 3 Low Time): {} ms - Level 3 low frequency delay", reg, value),
+                            53 => info!("  Register {:3} (Grid Freq Limit 3 High Time): {} ms - Level 3 high frequency delay", reg, value),
+
+                            // Power Quality Control
+                            54 => info!("  Register {:3} (Max Q Percent for QV): {}% - Maximum reactive power percentage for Q(V) control", reg, value),
+                            55 => info!("  Register {:3} (V1L): {:.1} V - Lower voltage threshold 1 for Q(V) curve", reg, (*value as f64) / 10.0),
+                            56 => info!("  Register {:3} (V2L): {:.1} V - Lower voltage threshold 2 for Q(V) curve", reg, (*value as f64) / 10.0),
+                            57 => info!("  Register {:3} (V1H): {:.1} V - Upper voltage threshold 1 for Q(V) curve", reg, (*value as f64) / 10.0),
+                            58 => info!("  Register {:3} (V2H): {:.1} V - Upper voltage threshold 2 for Q(V) curve", reg, (*value as f64) / 10.0),
+                            59 => info!("  Register {:3} (Reactive Power Cmd Type): {} - Reactive power command type", reg, value),
+                            60 => info!("  Register {:3} (Active Power Percent): {}% - Active power percentage command", reg, value),
+                            61 => info!("  Register {:3} (Reactive Power Percent): {}% - Reactive power percentage command", reg, value),
+                            62 => info!("  Register {:3} (Power Factor Command): {:.3} - Power factor command", reg, (*value as f64) / 1000.0),
+                            63 => info!("  Register {:3} (Power Soft Start Slope): {} - Power soft start slope", reg, value),
+                            
+                            // AutoTest registers (170-175)
+                            // These registers control and monitor the automatic grid compliance testing
+                            // functionality of the inverter
+                            170 => info!("  Register {:3} (AutoTest Command): {} - Command register for AutoTest", reg, value),
+                            171 => {
+                                let status = (value >> 0) & 0xF;
+                                let step = (value >> 4) & 0xF;
+                                let _reserved = (value >> 8) & 0xF;
+                                info!("  Register {:3} (AutoTest Status): {:#06x}", reg, value);
+                                info!("    Status: {} - {}", status, match status {
+                                    0 => "Waiting - Test not started",
+                                    1 => "Testing - Test in progress",
+                                    2 => "Test Failed - Last test failed",
+                                    3 => "Voltage Test OK - Voltage tests passed",
+                                    4 => "Frequency Test OK - Frequency tests passed",
+                                    5 => "Test Passed - All tests completed successfully",
+                                    _ => "Unknown status"
+                                });
+                                info!("    Step: {} - {}", step, match step {
+                                    1 => "V1L Test - Testing lower voltage limit 1",
+                                    2 => "V1H Test - Testing upper voltage limit 1",
+                                    3 => "F1L Test - Testing lower frequency limit 1",
+                                    4 => "F1H Test - Testing upper frequency limit 1",
+                                    5 => "V2L Test - Testing lower voltage limit 2",
+                                    6 => "V2H Test - Testing upper voltage limit 2",
+                                    7 => "F2L Test - Testing lower frequency limit 2",
+                                    8 => "F2H Test - Testing upper frequency limit 2",
+                                    _ => "No Test Active"
+                                });
+                            },
+                            172 => {
+                                let value_f = (*value as f64) * if value & 0x8000 != 0 { -0.1 } else { 0.1 };
+                                info!("  Register {:3} (AutoTest Limit): {:.1} {}", reg, value_f,
+                                    if (*reg >= 171 && *reg <= 172) || (*reg >= 175 && *reg <= 176) { "V" } else { "Hz" });
+                            },
+                            173 => info!("  Register {:3} (AutoTest Default Time): {} ms - Default test duration", reg, value),
+                            174 => {
+                                let value_f = (*value as f64) * if value & 0x8000 != 0 { -0.1 } else { 0.1 };
+                                info!("  Register {:3} (AutoTest Trip Value): {:.1} {}", reg, value_f,
+                                    if (*reg >= 171 && *reg <= 172) || (*reg >= 175 && *reg <= 176) { "V" } else { "Hz" });
+                            },
+                            175 => info!("  Register {:3} (AutoTest Trip Time): {} ms - Actual time until trip occurred", reg, value),
+
+                            // Default case for unknown registers
+                            _ => info!("  Register {:3}: {}", reg, value),
                         }
                     }
                     

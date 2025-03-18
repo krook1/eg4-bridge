@@ -1195,14 +1195,122 @@ pub enum DeviceFunction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u16)]
 pub enum Register {
-    Register21 = 21,             // not sure of a better name for this one..
+    /// System Information and Configuration
+    /// Basic system identification and setup parameters
+    Model = 0,                    // Model information including lithium type, power rating, etc.
+    SerialNum = 2,               // Device serial number (spans registers 2-6)
+    FirmwareCode = 7,            // Firmware version code
+    Time = 12,                   // System time (spans registers 12-14)
+                                // 12 = month (MSB) year (LSB, 2 digit)
+                                // 13 = hour (MSB) day (LSB)
+                                // 14 = second (MSB) minute (LSB)
+    ComAddr = 15,                // Communication address
+    Language = 16,               // System language setting
+    DeviceType = 19,             // Device type identifier
+    PvInputMode = 20,            // PV input mode configuration
+
+    /// Grid Connection Timing
+    ConnectTime = 23,            // Grid connection time
+    ReconnectTime = 24,          // Grid reconnection time delay
+
+    /// AutoTest Registers
+    AutoTestStatus = 171,        // Status and step information for auto testing
+    AutoTestLimit = 172,         // Voltage/Frequency limit for current test step
+    AutoTestDefaultTime = 173,   // Default time in milliseconds
+    AutoTestTripValue = 174,     // Trip value (0.1V/0.01Hz)
+    AutoTestTripTime = 175,      // Trip time in milliseconds
+
+    /// Grid Connection Limits
+    /// These registers define the voltage and frequency ranges within which the inverter can connect to the grid.
+    /// The inverter will only connect when both voltage and frequency are within these limits.
+    StartPvVolt = 22,           // PV voltage threshold for inverter startup
+    GridVoltConnLow = 25,        // Lower voltage limit for grid connection
+    GridVoltConnHigh = 26,       // Upper voltage limit for grid connection
+    GridFreqConnLow = 27,        // Lower frequency limit for grid connection
+    GridFreqConnHigh = 28,       // Upper frequency limit for grid connection
+
+    /// Grid Voltage Protection Level 1 (Mild Protection)
+    /// First level of grid voltage protection for minor deviations.
+    /// When grid voltage goes outside these limits for the specified time,
+    /// the inverter may take corrective action while maintaining operation.
+    GridVoltLimit1Low = 29,      // Level 1 lower voltage threshold
+    GridVoltLimit1High = 30,     // Level 1 upper voltage threshold
+    GridVoltLimit1LowTime = 31,  // Time delay before acting on low voltage (ms)
+    GridVoltLimit1HighTime = 32, // Time delay before acting on high voltage (ms)
+
+    /// Grid Voltage Protection Level 2 (Moderate Protection)
+    /// Second level of protection for moderate voltage deviations.
+    /// Triggers more aggressive protective measures than Level 1.
+    /// May reduce power output or temporarily disconnect.
+    GridVoltLimit2Low = 33,      // Level 2 lower voltage threshold
+    GridVoltLimit2High = 34,     // Level 2 upper voltage threshold
+    GridVoltLimit2LowTime = 35,  // Time delay before acting on low voltage (ms)
+    GridVoltLimit2HighTime = 36, // Time delay before acting on high voltage (ms)
+
+    /// Grid Voltage Protection Level 3 (Severe Protection)
+    /// Highest level of protection for severe voltage deviations.
+    /// Will likely result in immediate disconnection from the grid
+    /// to protect the inverter and connected equipment.
+    GridVoltLimit3Low = 37,      // Level 3 lower voltage threshold
+    GridVoltLimit3High = 38,     // Level 3 upper voltage threshold
+    GridVoltLimit3LowTime = 39,  // Time delay before acting on low voltage (ms)
+    GridVoltLimit3HighTime = 40, // Time delay before acting on high voltage (ms)
+
+    /// Additional Grid Voltage Protection
+    /// Moving average high voltage limit provides protection against
+    /// sustained high voltage conditions that might not trigger the
+    /// instantaneous protection levels.
+    GridVoltMovAvgHigh = 41,     // Moving average high voltage limit
+
+    /// Grid Frequency Protection Level 1 (Mild Protection)
+    /// First level of grid frequency protection for minor deviations.
+    /// When grid frequency goes outside these limits for the specified time,
+    /// the inverter may take corrective action while maintaining operation.
+    GridFreqLimit1Low = 42,      // Level 1 lower frequency threshold
+    GridFreqLimit1High = 43,     // Level 1 upper frequency threshold
+    GridFreqLimit1LowTime = 44,  // Time delay before acting on low frequency (ms)
+    GridFreqLimit1HighTime = 45, // Time delay before acting on high frequency (ms)
+
+    /// Grid Frequency Protection Level 2 (Moderate Protection)
+    /// Second level of protection for moderate frequency deviations.
+    /// Triggers more aggressive protective measures than Level 1.
+    /// May reduce power output or temporarily disconnect.
+    GridFreqLimit2Low = 46,      // Level 2 lower frequency threshold
+    GridFreqLimit2High = 47,     // Level 2 upper frequency threshold
+    GridFreqLimit2LowTime = 48,  // Time delay before acting on low frequency (ms)
+    GridFreqLimit2HighTime = 49, // Time delay before acting on high frequency (ms)
+
+    /// Grid Frequency Protection Level 3 (Severe Protection)
+    /// Highest level of protection for severe frequency deviations.
+    /// Will likely result in immediate disconnection from the grid
+    /// to protect the inverter and connected equipment.
+    GridFreqLimit3Low = 50,      // Level 3 lower frequency threshold
+    GridFreqLimit3High = 51,     // Level 3 upper frequency threshold
+    GridFreqLimit3LowTime = 52,  // Time delay before acting on low frequency (ms)
+    GridFreqLimit3HighTime = 53, // Time delay before acting on high frequency (ms)
+
+    /// Power Quality Control
+    /// Settings for reactive power control and power quality management
+    MaxQPercentForQv = 54,       // Maximum reactive power percentage for Q(V) control
+    V1L = 55,                    // Lower voltage threshold 1 for Q(V) curve
+    V2L = 56,                    // Lower voltage threshold 2 for Q(V) curve
+    V1H = 57,                    // Upper voltage threshold 1 for Q(V) curve
+    V2H = 58,                    // Upper voltage threshold 2 for Q(V) curve
+    ReactivePowerCmdType = 59,   // Reactive power command type
+    ActivePowerPercentCmd = 60,  // Active power percentage command
+    ReactivePowerPercentCmd = 61,// Reactive power percentage command
+    PfCmd = 62,                 // Power factor command
+    PowerSoftStartSlope = 63,   // Power soft start slope
+
+    // ... existing registers ...
+    Register21 = 21,             // Function enable/disable flags
     ChargePowerPercentCmd = 64,  // System Charge Rate (%)
     DischgPowerPercentCmd = 65,  // System Discharge Rate (%)
     AcChargePowerCmd = 66,       // Grid Charge Power Rate (%)
     AcChargeSocLimit = 67,       // AC Charge SOC Limit (%)
     ChargePriorityPowerCmd = 74, // Charge Priority Charge Rate (%)
     ChargePrioritySocLimit = 75, // Charge Priority SOC Limit (%)
-    ForcedDischgSocLimit = 83,   // Forced Discarge SOC Limit (%)
+    ForcedDischgSocLimit = 83,   // Forced Discharge SOC Limit (%)
     DischgCutOffSocEod = 105,    // Discharge cut-off SOC (%)
     EpsDischgCutoffSocEod = 125, // EPS Discharge cut-off SOC (%)
     AcChargeStartSocLimit = 160, // SOC at which AC charging will begin (%)
