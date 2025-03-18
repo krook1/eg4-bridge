@@ -833,6 +833,16 @@ impl ReadInputs {
                     bms_fw_update_state: ri3.bms_fw_update_state,
                     cycle_count: ri3.cycle_count,
                     vbat_inv: ri3.vbat_inv,
+                    // Generator and bus voltage fields
+                    gen_status: 0,          // Default value since not available in input
+                    gen_power_factor: 0,    // Default value since not available in input
+                    gen_current: 0,         // Default value since not available in input
+                    gen_power_limit: 0,     // Default value since not available in input
+                    gen_connect_status: 0,  // Default value since not available in input
+                    gen_control_mode: 0,    // Default value since not available in input
+                    gen_dispatch_mode: 0,   // Default value since not available in input
+                    v_bus_half: 0.0,       // Default value since not available in input
+                    // Generator measurements from ReadInput4
                     v_gen: ri4.v_gen,
                     f_gen: ri4.f_gen,
                     p_gen: ri4.p_gen,
