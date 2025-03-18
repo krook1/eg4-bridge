@@ -177,29 +177,38 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         // Charging Priority Settings (74-79)
         74 => format!("Register {} - Charging Priority Percentage: {}%", reg, value),
         75 => format!("Register {} - Charging Priority SOC Limit: {}%", reg, value),
-        76 => format!("Register {} - Charging Priority Start Minute: {} (0-59)", reg, value),
-        77 => format!("Register {} - Charging Priority End Minute: {} (0-59)", reg, value),
-        78 => format!("Register {} - Charging Priority Start Hour 1: {} (0-23)", reg, value),
-        79 => format!("Register {} - Charging Priority End Hour 1: {} (0-23)", reg, value),
+        76 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority Start Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
+        77 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority End Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
+        78 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority Start Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
+        79 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority End Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
+        80 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority Start Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
+        81 => {
+            let hour = (value >> 8) & 0xFF;
+            let minute = value & 0xFF;
+            format!("Register {} - Charging Priority End Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+        },
 
         // System Type and Battery Settings (80-82)
-        80 => {
-            let system_type = match value {
-                0 => "Off-grid",
-                1 => "Grid-tied",
-                2 => "Hybrid",
-                _ => "Unknown"
-            };
-            format!("System Type: {} - {}", value, system_type)
-        }
-        81 => {
-            let battery_type = match value {
-                0 => "Lead-acid",
-                1 => "Lithium",
-                _ => "Unknown"
-            };
-            format!("Battery Type: {} - {}", value, battery_type)
-        }
         82 => format!("Battery Capacity: {} Ah", value),
 
         // Grid Settings (83-84)

@@ -151,6 +151,7 @@ pub async fn app() -> Result<()> {
     };
 
     // Graceful shutdown sequence
+    info!("Stopping all components...");
     components.stop();
     info!("Shutdown complete");
 
