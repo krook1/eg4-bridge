@@ -7,6 +7,7 @@ pub mod timesync;
 pub mod update_hold;
 pub mod write_param;
 pub mod validation;
+pub mod parse_hold;
 
 // Re-export common validation functions
 pub use validation::*;

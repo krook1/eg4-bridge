@@ -6,6 +6,7 @@ use lxp::{
 };
 
 use super::validation::validate_register_block_boundary;
+use super::read_hold::ReadHold;
 use tokio::time::sleep;
 use std::time::Duration;
 
@@ -53,6 +54,12 @@ impl ReadInputs {
         }
 
         let result = receiver.wait_for_reply(&packet).await;
+
+        // If read was successful, mark input registers as read
+        if result.is_ok() {
+            ReadHold::mark_input_registers_read();
+            debug!("Input registers marked as read");
+        }
 
         // Add delay after read operation
         let delay_ms = self.inverter.delay_ms();

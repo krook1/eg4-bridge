@@ -3,6 +3,8 @@ use crate::coordinator::Channels;
 use crate::config;
 use lxp::packet::{DeviceFunction, TranslatedData, Packet};
 use lxp::inverter::WaitForReply;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use super::validation::validate_register_block_boundary;
 
@@ -15,6 +17,9 @@ const SYSTEM_CONTROL_RANGE: (u16, u16) = (64, 67);
 const AC_CHARGE_RANGE: (u16, u16) = (160, 161);
 const BATTERY_WARNING_RANGE: (u16, u16) = (162, 169);
 const AUTOTEST_RANGE: (u16, u16) = (170, 175);
+
+// Track whether input registers have been read
+static INPUT_REGISTERS_READ: AtomicBool = AtomicBool::new(false);
 
 pub struct ReadHold {
     channels: Channels,
@@ -56,7 +61,25 @@ impl ReadHold {
         })
     }
 
+    // Mark input registers as read
+    pub fn mark_input_registers_read() {
+        INPUT_REGISTERS_READ.store(true, Ordering::SeqCst);
+    }
+
+    // Reset input registers read status (useful for testing or when connection is reset)
+    pub fn reset_input_registers_status() {
+        INPUT_REGISTERS_READ.store(false, Ordering::SeqCst);
+    }
+
     pub async fn run(&self) -> Result<Packet> {
+        // Check if input registers have been read first
+        if !INPUT_REGISTERS_READ.load(Ordering::SeqCst) {
+            bail!(
+                "Input registers (Table 7) must be read before hold registers (Table 8). \
+                Please ensure ReadInput is called before ReadHold."
+            );
+        }
+
         // Validate block boundaries before proceeding
         validate_register_block_boundary(self.register, self.count)?;
 
