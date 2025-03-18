@@ -131,6 +131,14 @@ impl Coordinator {
     }
 
     pub fn stop(&self) {
+        // Print final statistics
+        if let Ok(stats) = self.stats.lock() {
+            info!("Final Statistics:");
+            stats.print_summary();
+        } else {
+            error!("Could not acquire lock to print statistics");
+        }
+
         // Send shutdown signals to channels
         let _ = self
             .channels
@@ -140,6 +148,9 @@ impl Coordinator {
         if self.config.mqtt().enabled() {
             let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
         }
+
+        // Give a moment for the statistics to be printed
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
     async fn mqtt_receiver(&self) -> Result<()> {

@@ -167,3 +167,32 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
     futures::future::join_all(futures).await;
     Ok(())
 }
+
+impl App {
+    async fn shutdown_sequence(&mut self) -> Result<()> {
+        info!("Initiating shutdown sequence");
+
+        // First send shutdown signals to all components
+        info!("Sending shutdown signals...");
+        let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
+        let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
+        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
+
+        // Give components time to process final messages and update statistics
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        // Get a lock on the statistics and print them
+        if let Ok(stats) = self.coordinator.stats.lock() {
+            info!("Final statistics:");
+            stats.print_summary();
+        } else {
+            error!("Could not acquire lock to print statistics");
+        }
+
+        // Give a moment for shutdown signals to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        info!("Shutdown complete");
+        Ok(())
+    }
+}
