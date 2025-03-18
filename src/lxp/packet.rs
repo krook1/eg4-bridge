@@ -2337,3 +2337,35 @@ impl BatteryStatusString {
         statuses
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModbusError {
+    IllegalFunction = 0x01,    // Function code not supported
+    IllegalAddress = 0x02,     // Data address outside valid range
+    IllegalValue = 0x03,       // Data value out of bounds or invalid
+    SlaveFailure = 0x04,       // Read/write operation failed
+    SlaveIsBusy = 0x06,       // Device is busy processing another command
+}
+
+impl ModbusError {
+    pub fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0x01 => Some(Self::IllegalFunction),
+            0x02 => Some(Self::IllegalAddress),
+            0x03 => Some(Self::IllegalValue),
+            0x04 => Some(Self::SlaveFailure),
+            0x06 => Some(Self::SlaveIsBusy),
+            _ => None,
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::IllegalFunction => "Function code not supported by the inverter",
+            Self::IllegalAddress => "Data address is outside valid range",
+            Self::IllegalValue => "Data value is out of bounds or invalid",
+            Self::SlaveFailure => "Inverter read/write operation failed",
+            Self::SlaveIsBusy => "Inverter is busy processing another command",
+        }
+    }
+}

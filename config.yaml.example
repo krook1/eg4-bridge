@@ -14,6 +14,8 @@ inverters:
   read_timeout: 900
   # Size of register blocks to read (1-40, default: 40)
   register_block_size: 40
+  # Delay between read operations in milliseconds (recommended minimum: 1000)
+  delay_ms: 1000
 - enabled: false
   host: 192.168.0.163
   port: 8000
@@ -27,6 +29,8 @@ inverters:
   read_timeout: 900
   # Size of register blocks to read (1-40, default: 40)
   register_block_size: 40
+  # Delay between read operations in milliseconds (recommended minimum: 1000)
+  delay_ms: 1000
 
 databases:
 - enabled: false

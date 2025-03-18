@@ -31,15 +31,17 @@ pub struct PacketStats {
     translated_data_packets_sent: u64,
     read_param_packets_sent: u64,
     write_param_packets_sent: u64,
+    // Error counters
+    modbus_errors: u64,
+    mqtt_errors: u64,
+    influx_errors: u64,
+    database_errors: u64,
+    register_cache_errors: u64,
     // Other stats
     mqtt_messages_sent: u64,
-    mqtt_errors: u64,
     influx_writes: u64,
-    influx_errors: u64,
     database_writes: u64,
-    database_errors: u64,
     register_cache_writes: u64,
-    register_cache_errors: u64,
     // Connection stats
     inverter_disconnections: std::collections::HashMap<Serial, u64>,
     serial_mismatches: u64,
@@ -62,18 +64,20 @@ impl PacketStats {
         info!("    TranslatedData packets: {}", self.translated_data_packets_sent);
         info!("    ReadParam packets: {}", self.read_param_packets_sent);
         info!("    WriteParam packets: {}", self.write_param_packets_sent);
+        info!("  Errors:");
+        info!("    Modbus errors: {}", self.modbus_errors);
+        info!("    MQTT errors: {}", self.mqtt_errors);
+        info!("    InfluxDB errors: {}", self.influx_errors);
+        info!("    Database errors: {}", self.database_errors);
+        info!("    Register cache errors: {}", self.register_cache_errors);
         info!("  MQTT:");
         info!("    Messages sent: {}", self.mqtt_messages_sent);
-        info!("    Errors: {}", self.mqtt_errors);
         info!("  InfluxDB:");
         info!("    Writes: {}", self.influx_writes);
-        info!("    Errors: {}", self.influx_errors);
         info!("  Database:");
         info!("    Writes: {}", self.database_writes);
-        info!("    Errors: {}", self.database_errors);
         info!("  Register Cache:");
         info!("    Writes: {}", self.register_cache_writes);
-        info!("    Errors: {}", self.register_cache_errors);
         info!("  Connection Stats:");
         info!("    Serial number mismatches: {}", self.serial_mismatches);
         info!("    Inverter disconnections by serial:");
@@ -312,15 +316,12 @@ impl Coordinator {
     where
         U: Into<u16>,
     {
-        commands::read_inputs::ReadInputs::new(
-            self.channels.clone(),
-            inverter.clone(),
-            register,
-            count,
-        )
-        .run()
-        .await?;
-
+        commands::read_inputs::ReadInputs::new(self.channels.clone(), inverter.clone(), register, count)
+            .run()
+            .await?;
+        
+        // Add delay after read operation
+        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())
     }
 
@@ -328,15 +329,12 @@ impl Coordinator {
     where
         U: Into<u16>,
     {
-        commands::read_hold::ReadHold::new(
-            self.channels.clone(),
-            inverter.clone(),
-            register,
-            count,
-        )
-        .run()
-        .await?;
-
+        commands::read_hold::ReadHold::new(self.channels.clone(), inverter.clone(), register, count)
+            .run()
+            .await?;
+        
+        // Add delay after read operation
+        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())
     }
 
@@ -347,7 +345,9 @@ impl Coordinator {
         commands::read_param::ReadParam::new(self.channels.clone(), inverter.clone(), register)
             .run()
             .await?;
-
+        
+        // Add delay after read operation
+        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
         Ok(())
     }
 
@@ -363,7 +363,11 @@ impl Coordinator {
             action,
         )
         .run()
-        .await
+        .await?;
+        
+        // Add delay after read operation
+        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        Ok(())
     }
 
     async fn write_param<U>(
@@ -440,6 +444,22 @@ impl Coordinator {
 
     async fn process_inverter_packet(&self, packet: Packet, inverter: &config::Inverter) -> Result<()> {
         if let Packet::TranslatedData(td) = packet {
+            // Check for Modbus error response
+            if td.values.len() >= 1 {
+                let first_byte = td.values[0];
+                if first_byte & 0x80 != 0 {  // Check if MSB is set (error response)
+                    let error_code = first_byte & 0x7F;  // Remove MSB to get error code
+                    if let Some(error) = lxp::packet::ModbusError::from_code(error_code) {
+                        error!("Modbus error from inverter {}: {} (code: {:#04x})", 
+                            inverter.datalog(), error.description(), error_code);
+                        if let Ok(mut stats) = self.stats.lock() {
+                            stats.modbus_errors += 1;
+                        }
+                        return Ok(());  // Return early as this is an error response
+                    }
+                }
+            }
+
             // Validate serial number format
             if let Some(serial) = td.inverter() {
                 if !serial.to_string().chars().all(|c| c.is_ascii_alphanumeric()) {
@@ -960,9 +980,6 @@ impl Coordinator {
 
         info!("Reading all registers for inverter {}", datalog);
 
-        // Add delay between read requests to prevent overwhelming the inverter
-        const DELAY_MS: u64 = 100; // 100ms delay between requests
-
         // Create a packet for stats tracking
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: Serial::default(),
@@ -978,45 +995,39 @@ impl Coordinator {
         for start_register in (0..=240).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
             self.read_hold(inverter.clone(), start_register as u16, block_size).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 
         // Read all input register blocks
         for start_register in (0..=200).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
             self.read_inputs(inverter.clone(), start_register as u16, block_size).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 
-        // Read time registers with appropriate delays
+        // Read time registers
         for num in &[1, 2, 3] {
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::AcCharge(*num),
             ).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::ChargePriority(*num),
             ).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::ForcedDischarge(*num),
             ).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::AcFirst(*num),
             ).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 
         Ok(())
