@@ -149,11 +149,42 @@ impl Message {
                 retain: false,
                 payload: serde_json::to_string(&r1)?,
             }),
-            Ok(ReadInput::ReadInput2(r2)) => r.push(mqtt::Message {
-                topic: format!("{}/inputs/2", td.datalog),
-                retain: false,
-                payload: serde_json::to_string(&r2)?,
-            }),
+            Ok(ReadInput::ReadInput2(r2)) => {
+                // Create the main message with all data
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/2", td.datalog),
+                    retain: false,
+                    payload: serde_json::to_string(&r2)?,
+                });
+                
+                // Add human-readable battery information
+                let bat_brand_str = match r2.bat_brand {
+                    0 => "Unknown/Not configured",
+                    1 => "Pylon",
+                    2 => "Dyness",
+                    _ => "Unknown",
+                };
+                
+                let bat_com_type_str = match r2.bat_com_type {
+                    0 => "Unknown/Not configured",
+                    1 => "RS485",
+                    2 => "CAN",
+                    _ => "Unknown",
+                };
+                
+                // Add decoded battery information messages
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/2/bat_brand_decoded", td.datalog),
+                    retain: false,
+                    payload: bat_brand_str.to_string(),
+                });
+                
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/2/bat_com_type_decoded", td.datalog),
+                    retain: false,
+                    payload: bat_com_type_str.to_string(),
+                });
+            },
             Ok(ReadInput::ReadInput3(r3)) => r.push(mqtt::Message {
                 topic: format!("{}/inputs/3", td.datalog),
                 retain: false,

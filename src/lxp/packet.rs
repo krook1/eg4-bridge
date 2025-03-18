@@ -614,8 +614,19 @@ pub struct ReadInput2 {
 
     // Battery information
     // Battery manufacturer/brand identifier
+    // Known values:
+    // 0: Unknown/Not configured
+    // 1: Pylon
+    // 2: Dyness
+    // Add other known values as they are discovered
     pub bat_brand: u8,
+    
     // Battery communication protocol type
+    // Known values:
+    // 0: Unknown/Not configured
+    // 1: RS485
+    // 2: CAN
+    // Add other known values as they are discovered
     pub bat_com_type: u8,
 
     // Timestamp of reading
@@ -1447,7 +1458,7 @@ impl TranslatedData {
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(_) => Err(anyhow!("meh")),
+            Err(e) => Err(anyhow!("Failed to parse ReadInputAll packet: {:?}. This may indicate corrupted or incomplete data from the inverter", e)),
         }
     }
 
@@ -1468,18 +1479,34 @@ impl TranslatedData {
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(_) => Err(anyhow!("meh")),
+            Err(e) => Err(anyhow!("Failed to parse ReadInput1 packet: {:?}. This may indicate corrupted or incomplete data from the inverter", e)),
         }
     }
 
     fn read_input2(&self) -> Result<ReadInput2> {
         match ReadInput2::parse(&self.values) {
             Ok((_, mut r)) => {
+                // Log the raw values for debugging
+                debug!("ReadInput2 bat_brand: {}, bat_com_type: {}", r.bat_brand, r.bat_com_type);
+                
+                // Validate battery brand and communication type
+                if r.bat_brand == 0 {
+                    warn!("ReadInput2: bat_brand is 0, this may indicate missing or invalid data");
+                }
+                if r.bat_com_type == 0 {
+                    warn!("ReadInput2: bat_com_type is 0, this may indicate missing or invalid data");
+                }
+                
                 r.e_pv_all = Utils::round(r.e_pv_all_1 + r.e_pv_all_2 + r.e_pv_all_3, 1);
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(e) => Err(anyhow!("Failed to parse ReadInput2: {:?}", e)),
+            Err(e) => {
+                // Provide more detailed error information
+                let error_msg = format!("Failed to parse ReadInput2: {:?}. Values: {:?}", e, self.values);
+                error!("{}", error_msg);
+                Err(anyhow!(error_msg))
+            }
         }
     }
 
@@ -1489,7 +1516,7 @@ impl TranslatedData {
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(_) => Err(anyhow!("meh")),
+            Err(e) => Err(anyhow!("Failed to parse ReadInput3 packet: {:?}. This may indicate corrupted or incomplete data from the inverter", e)),
         }
     }
 
@@ -1499,7 +1526,7 @@ impl TranslatedData {
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(_) => Err(anyhow!("meh")),
+            Err(e) => Err(anyhow!("Failed to parse ReadInput4 packet: {:?}. This may indicate corrupted or incomplete data from the inverter", e)),
         }
     }
 

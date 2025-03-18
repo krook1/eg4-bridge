@@ -583,6 +583,7 @@ impl Coordinator {
                         
                         // Log register value with description if known
                         match *reg {
+                            // Table 8 - System Control
                             21 => {
                                 let mut flags = Vec::new();
                                 if value & (1 << 0) != 0 { flags.push("AC Charge Enabled"); }
@@ -608,23 +609,43 @@ impl Coordinator {
                             125 => info!("  Register {:3} (EPS Discharge cut-off): {}% - Minimum battery level in EPS mode", reg, value),
                             160 => info!("  Register {:3} (AC Charge Start SOC): {}% - Battery level to begin AC charging", reg, value),
                             161 => info!("  Register {:3} (AC Charge End SOC): {}% - Battery level to stop AC charging", reg, value),
+                            
+                            // Table 7 - System Status
                             110 => info!("  Register {:3} (Battery Capacity): {} Ah - Rated capacity of the battery", reg, value),
-                            111 => info!("  Register {:3} (Battery Voltage): {} V - Current battery voltage", reg, value),
-                            112 => info!("  Register {:3} (Battery Current): {} A - Current battery current", reg, value),
+                            111 => info!("  Register {:3} (Battery Voltage): {:.1} V - Current battery voltage", reg, (*value as f64) / 10.0),
+                            112 => info!("  Register {:3} (Battery Current): {:.1} A - Current battery current", reg, (*value as f64) / 10.0),
                             113 => info!("  Register {:3} (Battery Power): {} W - Current battery power", reg, value),
-                            114 => info!("  Register {:3} (Battery Temperature): {} °C - Current battery temperature", reg, value),
+                            114 => info!("  Register {:3} (Battery Temperature): {:.1} °C - Current battery temperature", reg, (*value as f64) / 10.0),
                             115 => info!("  Register {:3} (Battery SOC): {}% - Current state of charge", reg, value),
                             116 => info!("  Register {:3} (Battery SOH): {}% - Current state of health", reg, value),
                             117 => info!("  Register {:3} (Battery Cycles): {} - Total battery charge/discharge cycles", reg, value),
-                            // Grid and Power Settings
                             68 => info!("  Register {:3} (Grid Power Limit): {} W - Maximum grid power limit", reg, value),
                             69 => info!("  Register {:3} (Grid Connected Power): {} W - Current grid connected power", reg, value),
                             70 => info!("  Register {:3} (Grid Frequency): {:.2} Hz - Current grid frequency", reg, (*value as f64) / 100.0),
                             71 => info!("  Register {:3} (Grid Voltage): {:.1} V - Current grid voltage", reg, (*value as f64) / 10.0),
-                            // Time-based Settings
-                            84 => info!("  Register {:3} (Time Enable Flags): {:#06x} - Time-based function enable flags", reg, value),
+                            72 => info!("  Register {:3} (Grid Current): {:.1} A - Current grid current", reg, (*value as f64) / 10.0),
+                            73 => info!("  Register {:3} (Grid Power): {} W - Current grid power", reg, value),
+                            76 => info!("  Register {:3} (Load Power): {} W - Current load power consumption", reg, value),
+                            77 => info!("  Register {:3} (Load Current): {:.1} A - Current load current", reg, (*value as f64) / 10.0),
+                            78 => info!("  Register {:3} (AC Power L1): {} W - AC power on phase L1", reg, value),
+                            79 => info!("  Register {:3} (AC Power L2): {} W - AC power on phase L2", reg, value),
+                            80 => info!("  Register {:3} (Daily Grid Import): {:.1} kWh - Energy imported from grid today", reg, (*value as f64) / 10.0),
+                            81 => info!("  Register {:3} (Daily Grid Export): {:.1} kWh - Energy exported to grid today", reg, (*value as f64) / 10.0),
+                            82 => info!("  Register {:3} (Daily Load Energy): {:.1} kWh - Energy consumed by load today", reg, (*value as f64) / 10.0),
+                            84 => {
+                                let mut flags = Vec::new();
+                                if value & (1 << 0) != 0 { flags.push("AC Charge Time Enabled"); }
+                                if value & (1 << 1) != 0 { flags.push("Forced Discharge Time Enabled"); }
+                                if value & (1 << 2) != 0 { flags.push("Charge Priority Time Enabled"); }
+                                info!("  Register {:3} (Time Enable Flags): {:#06x}", reg, value);
+                                let flag_str = if flags.is_empty() { 
+                                    "None".to_string() 
+                                } else { 
+                                    flags.join(", ") 
+                                };
+                                info!("    Active time flags: {}", flag_str);
+                            },
                             85 => info!("  Register {:3} (Current Time): Hour={}, Minute={} - System time", reg, value >> 8, value & 0xFF),
-                            // System Status
                             200 => {
                                 let status = match value {
                                     0 => "Standby",
