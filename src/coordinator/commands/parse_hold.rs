@@ -148,25 +148,25 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             };
             
             if reg % 2 == 0 && reg <= 41 {
-                format!("{}: {:.1} V", desc, (value as f64) / 10.0)
+                format!("Register: {} - {}: {:.1} V", reg, desc, (value as f64) / 10.0)
             } else if reg % 2 == 0 && reg > 41 {
-                format!("{}: {:.2} Hz", desc, (value as f64) / 100.0)
+                format!("Register: {} - {}: {:.2} Hz", reg, desc, (value as f64) / 100.0)
             } else {
-                format!("{}: {} ms", desc, value)
+                format!("Register: {} - {}: {} ms", reg, desc, value)
             }
         }
 
         // Power Quality Control (54-63)
-        54 => format!("Maximum Q Percent for Q(V) Curve: {}%", value),
-        55 => format!("Q(V) Lower Voltage Point 1 (V1L): {:.1} V", (value as f64) / 10.0),
-        56 => format!("Q(V) Lower Voltage Point 2 (V2L): {:.1} V", (value as f64) / 10.0),
-        57 => format!("Q(V) Upper Voltage Point 1 (V1H): {:.1} V", (value as f64) / 10.0),
-        58 => format!("Q(V) Upper Voltage Point 2 (V2H): {:.1} V", (value as f64) / 10.0),
-        59 => format!("Reactive Power Command Type: {}", value),
-        60 => format!("Active Power Percent Command: {}%", value),
-        61 => format!("Reactive Power Percent Command: {}%", value),
-        62 => format!("Power Factor Command: {:.3}", (value as f64) / 1000.0),
-        63 => format!("Power Soft Start Slope: {}", value),
+        54 => format!("Register: {} - Maximum Q Percent for Q(V) Curve: {}%", reg, value),
+        55 => format!("Register: {} - Q(V) Lower Voltage Point 1 (V1L): {:.1} V", reg, (value as f64) / 10.0),
+        56 => format!("Register: {} - Q(V) Lower Voltage Point 2 (V2L): {:.1} V", reg, (value as f64) / 10.0),
+        57 => format!("Register: {} - Q(V) Upper Voltage Point 1 (V1H): {:.1} V", reg, (value as f64) / 10.0),
+        58 => format!("Register: {} - Q(V) Upper Voltage Point 2 (V2H): {:.1} V", reg, (value as f64) / 10.0),
+        59 => format!("Register: {} - Reactive Power Command Type: {}", reg, value),
+        60 => format!("Register: {} - Active Power Percent Command: {}%", reg, value),
+        61 => format!("Register: {} - Reactive Power Percent Command: {}%", reg, value),
+        62 => format!("Register: {} - Power Factor Command: {:.3}", reg, (value as f64) / 1000.0),
+        63 => format!("Register: {} - Power Soft Start Slope: {}", reg, value),
 
         // System Control (64-67)
         64 => format!("Register {} - System Charge Rate: {}%", reg, value),
@@ -344,7 +344,15 @@ time_hour setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
             };
             format!("Maintenance Mode: {} - {}", value, maintenance_mode)
         }
-        100 => format!("Maintenance Time: {} minutes", value),
+        100 => format!("Register: {} Maintenance Time: {} minutes", reg, value),
+        118 => format!("Register: {} VbatStartDerating: {} V", reg, value),
+        119 => format!("Register: {} wCT_PowerOffset: {} W", reg, value),
+
+        144 => format!("Register: {} FloatChargeVolt: {} V", reg, value), // 0.1V
+        145 => format!("Register: {} OutputPrioConfig: {}", reg, value),
+        146 => format!("Register: {} LineMode: {}", reg, value), // 0-APL (90-280V 20ms) 1- UPS (170-280V 10ms) 2- GEN (90-280V 20ms)
+        147 => format!("Register: {} Battery capacity: {} Ah", reg, value), // Ah
+        148 => format!("Register: {} Battery nominal Voltage: {} V", reg, value), // 0.1v units
 
         // AC Charge Settings (160-161)
         160 => format!("AC Charge Start SOC: {}%", value),
