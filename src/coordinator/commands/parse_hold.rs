@@ -12,86 +12,128 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             format!("Model Info: {:#06x}\n  Lithium Type: {}\n  Power Rating: {}\n  Lead Acid Type: {}\n  Battery Type: {}", 
                 value, lithium_type, power_rating, lead_acid_type, battery_type)
         }
-        2..=6 => format!("Serial Number Part {}: {:#06x}", reg - 1, value),
-        7 => format!("Firmware Code: {}", value),
-        9 => format!("Slave Firmware Code: {}", value),
-        10 => format!("Control CPU Firmware Code: {}", value),
+        2..=6 => {
+            // Serial number format: AB12345678
+            // SN[0]=Year (A-Z), SN[1]=Week (0-9,A-Z), SN[2]=Week (0-9,A-Z)
+            // SN[3]=Factory (0-9,A-Z), SN[4-6]=Product code (0-9,A-Z)
+            // SN[7-9]=Batch number (0-9,A-Z)
+            let part = reg - 1;
+            format!("Serial Number Part {} ({}): {:#06x}", 
+                part,
+                match part {
+                    1 => "Year",
+                    2 => "Week",
+                    3 => "Factory",
+                    4..=6 => "Product Code",
+                    7..=9 => "Batch Number",
+                    _ => "Unknown"
+                },
+                value)
+        }
+        7 => format!("Firmware Version Code: {}", value),
+        9 => format!("Slave CPU Version (Redundant): {}", value),
+        10 => format!("Control CPU Version: {}", value),
         11 => {
-            let mut flags = Vec::new();
-            if value & (1 << 0) != 0 { flags.push("Grid Connected"); }
-            if value & (1 << 1) != 0 { flags.push("Grid Synchronization"); }
-            if value & (1 << 2) != 0 { flags.push("Soft Start"); }
-            if value & (1 << 3) != 0 { flags.push("PV Input"); }
-            if value & (1 << 4) != 0 { flags.push("Battery Charging"); }
-            if value & (1 << 5) != 0 { flags.push("Battery Discharging"); }
-            if value & (1 << 6) != 0 { flags.push("EPS Mode"); }
-            if value & (1 << 7) != 0 { flags.push("Fault Present"); }
-            if value & (1 << 8) != 0 { flags.push("Charging from Grid"); }
-            if value & (1 << 9) != 0 { flags.push("Charge Priority Active"); }
-            if value & (1 << 10) != 0 { flags.push("Forced Discharge Active"); }
-            if value & (1 << 11) != 0 { flags.push("AC Charge Active"); }
-            if value & (1 << 12) != 0 { flags.push("Fault Lock"); }
-            if value & (1 << 13) != 0 { flags.push("Battery Full"); }
-            if value & (1 << 14) != 0 { flags.push("Battery Empty"); }
-            if value & (1 << 15) != 0 { flags.push("Battery Standby"); }
-            format!("Status Flags: {:#018b}\nActive flags: {}", value, flags.join(", "))
+            let mut settings = Vec::new();
+            if value & (1 << 0) != 0 { settings.push("Energy Record Clear"); }
+            if value & (1 << 1) != 0 { settings.push("Reset All to Default"); }
+            if value & (1 << 2) != 0 { settings.push("Adjustment Ratio Clear"); }
+            if value & (1 << 3) != 0 { settings.push("Fault Record Clear"); }
+            if value & (1 << 4) != 0 { settings.push("Monitor Data Clear"); }
+            if value & (1 << 5) != 0 { settings.push("BMS Charge Switch On"); }
+            if value & (1 << 6) != 0 { settings.push("BMS Discharge Switch On"); }
+            if value & (1 << 7) != 0 { settings.push("Inverter Reboot"); }
+            format!("Reset Settings: {:#018b}\nActive settings: {}", value, settings.join(", "))
         }
         12 => {
             let month = value >> 8;
             let year = value & 0xFF;
-            format!("Date: Month={}, Year=20{:02}", month, year)
+            format!("Date: Month={} (1-12), Year=20{:02} (17-255)", month, year)
         }
         13 => {
             let hour = value >> 8;
             let day = value & 0xFF;
-            format!("Time: Hour={}, Day={}", hour, day)
+            format!("Time: Hour={} (0-23), Day={} (1-31)", hour, day)
         }
         14 => {
             let second = value >> 8;
             let minute = value & 0xFF;
-            format!("Time: Second={}, Minute={}", second, minute)
+            format!("Time: Second={} (0-59), Minute={} (0-59)", second, minute)
         }
-        15 => format!("Communication Address: {}", value),
-        16 => format!("Language: {}", value),
-        19 => format!("Device Type: {}", value),
-        20 => format!("PV Input Mode: {}", value),
-        23 => format!("Connect Time: {} ms", value),
-        24 => format!("Reconnect Time: {} ms", value),
+        15 => format!("Communication Address: {} (0-150)", value),
+        16 => format!("Language: {} (0=English, 1=German)", value),
+        20 => {
+            let mode = match value {
+                0 => "No PV",
+                1 => "PV1 Connected",
+                2 => "PV2 Connected",
+                3 => "Two Parallel PV",
+                4 => "Two Separate PV",
+                5 => "PV1&3 Connected (12K Hybrid)",
+                6 => "PV2&3 Connected (12K Hybrid)",
+                7 => "PV1&2&3 Connected (12K Hybrid)",
+                _ => "Unknown"
+            };
+            format!("PV Input Mode: {} - {}", value, mode)
+        }
+        21 => {
+            let mut features = Vec::new();
+            if value & (1 << 0) != 0 { features.push("EPS Mode"); }
+            if value & (1 << 1) != 0 { features.push("Over Frequency Load Reduction"); }
+            if value & (1 << 2) != 0 { features.push("DRMS"); }
+            if value & (1 << 3) != 0 { features.push("Low Voltage Ride Through"); }
+            if value & (1 << 4) != 0 { features.push("Anti-islanding"); }
+            if value & (1 << 5) != 0 { features.push("Neutral Detection"); }
+            if value & (1 << 6) != 0 { features.push("Grid-connected Power Soft Start"); }
+            if value & (1 << 7) != 0 { features.push("AC Charge"); }
+            if value & (1 << 8) != 0 { features.push("Off-grid Seamless Switching"); }
+            if value & (1 << 9) != 0 { features.push("Power On (0=Standby)"); }
+            if value & (1 << 10) != 0 { features.push("Forced Discharge"); }
+            if value & (1 << 11) != 0 { features.push("Forced Charge"); }
+            if value & (1 << 12) != 0 { features.push("ISO"); }
+            if value & (1 << 13) != 0 { features.push("GFCI"); }
+            if value & (1 << 14) != 0 { features.push("DCI"); }
+            if value & (1 << 15) != 0 { features.push("Feed In Grid"); }
+            format!("Function Enable Flags: {:#018b}\nEnabled features: {}", value, features.join(", "))
+        }
+        22 => format!("Start PV Voltage: {:.1} V (90.0-500.0V)", (value as f64) / 10.0),
+        23 => format!("Grid Connection Wait Time: {} seconds (30-600s)", value),
+        24 => format!("Grid Reconnection Wait Time: {} seconds (0-900s)", value),
 
         // Grid Connection Limits (25-28)
-        25 => format!("Grid Connect Low Volt: {:.1} V", (value as f64) / 10.0),
-        26 => format!("Grid Connect High Volt: {:.1} V", (value as f64) / 10.0),
-        27 => format!("Grid Connect Low Freq: {:.2} Hz", (value as f64) / 100.0),
-        28 => format!("Grid Connect High Freq: {:.2} Hz", (value as f64) / 100.0),
+        25 => format!("Grid Connect Low Voltage: {:.1} V", (value as f64) / 10.0),
+        26 => format!("Grid Connect High Voltage: {:.1} V", (value as f64) / 10.0),
+        27 => format!("Grid Connect Low Frequency: {:.2} Hz", (value as f64) / 100.0),
+        28 => format!("Grid Connect High Frequency: {:.2} Hz", (value as f64) / 100.0),
 
         // Grid Protection Settings (29-53)
         29..=53 => {
             let desc = match reg {
-                29 => "Grid Volt Limit 1 Low",
-                30 => "Grid Volt Limit 1 High",
-                31 => "Grid Volt Limit 1 Low Time",
-                32 => "Grid Volt Limit 1 High Time",
-                33 => "Grid Volt Limit 2 Low",
-                34 => "Grid Volt Limit 2 High",
-                35 => "Grid Volt Limit 2 Low Time",
-                36 => "Grid Volt Limit 2 High Time",
-                37 => "Grid Volt Limit 3 Low",
-                38 => "Grid Volt Limit 3 High",
-                39 => "Grid Volt Limit 3 Low Time",
-                40 => "Grid Volt Limit 3 High Time",
-                41 => "Grid Volt Moving Avg High",
-                42 => "Grid Freq Limit 1 Low",
-                43 => "Grid Freq Limit 1 High",
-                44 => "Grid Freq Limit 1 Low Time",
-                45 => "Grid Freq Limit 1 High Time",
-                46 => "Grid Freq Limit 2 Low",
-                47 => "Grid Freq Limit 2 High",
-                48 => "Grid Freq Limit 2 Low Time",
-                49 => "Grid Freq Limit 2 High Time",
-                50 => "Grid Freq Limit 3 Low",
-                51 => "Grid Freq Limit 3 High",
-                52 => "Grid Freq Limit 3 Low Time",
-                53 => "Grid Freq Limit 3 High Time",
+                29 => "Grid Voltage Level 1 Under-voltage Protection",
+                30 => "Grid Voltage Level 1 Over-voltage Protection",
+                31 => "Grid Voltage Level 1 Under-voltage Protection Time",
+                32 => "Grid Voltage Level 1 Over-voltage Protection Time",
+                33 => "Grid Voltage Level 2 Under-voltage Protection",
+                34 => "Grid Voltage Level 2 Over-voltage Protection",
+                35 => "Grid Voltage Level 2 Under-voltage Protection Time",
+                36 => "Grid Voltage Level 2 Over-voltage Protection Time",
+                37 => "Grid Voltage Level 3 Under-voltage Protection",
+                38 => "Grid Voltage Level 3 Over-voltage Protection",
+                39 => "Grid Voltage Level 3 Under-voltage Protection Time",
+                40 => "Grid Voltage Level 3 Over-voltage Protection Time",
+                41 => "Grid Voltage Moving Average Over-voltage Protection",
+                42 => "Grid Frequency Level 1 Under-frequency Protection",
+                43 => "Grid Frequency Level 1 Over-frequency Protection",
+                44 => "Grid Frequency Level 1 Under-frequency Protection Time",
+                45 => "Grid Frequency Level 1 Over-frequency Protection Time",
+                46 => "Grid Frequency Level 2 Under-frequency Protection",
+                47 => "Grid Frequency Level 2 Over-frequency Protection",
+                48 => "Grid Frequency Level 2 Under-frequency Protection Time",
+                49 => "Grid Frequency Level 2 Over-frequency Protection Time",
+                50 => "Grid Frequency Level 3 Under-frequency Protection",
+                51 => "Grid Frequency Level 3 Over-frequency Protection",
+                52 => "Grid Frequency Level 3 Under-frequency Protection Time",
+                53 => "Grid Frequency Level 3 Over-frequency Protection Time",
                 _ => "Unknown Grid Protection Setting"
             };
             
@@ -105,14 +147,14 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         }
 
         // Power Quality Control (54-63)
-        54 => format!("Max Q Percent for QV: {}%", value),
-        55 => format!("V1L: {:.1} V", (value as f64) / 10.0),
-        56 => format!("V2L: {:.1} V", (value as f64) / 10.0),
-        57 => format!("V1H: {:.1} V", (value as f64) / 10.0),
-        58 => format!("V2H: {:.1} V", (value as f64) / 10.0),
-        59 => format!("Reactive Power Cmd Type: {}", value),
-        60 => format!("Active Power Percent: {}%", value),
-        61 => format!("Reactive Power Percent: {}%", value),
+        54 => format!("Maximum Q Percent for Q(V) Curve: {}%", value),
+        55 => format!("Q(V) Lower Voltage Point 1 (V1L): {:.1} V", (value as f64) / 10.0),
+        56 => format!("Q(V) Lower Voltage Point 2 (V2L): {:.1} V", (value as f64) / 10.0),
+        57 => format!("Q(V) Upper Voltage Point 1 (V1H): {:.1} V", (value as f64) / 10.0),
+        58 => format!("Q(V) Upper Voltage Point 2 (V2H): {:.1} V", (value as f64) / 10.0),
+        59 => format!("Reactive Power Command Type: {}", value),
+        60 => format!("Active Power Percent Command: {}%", value),
+        61 => format!("Reactive Power Percent Command: {}%", value),
         62 => format!("Power Factor Command: {:.3}", (value as f64) / 1000.0),
         63 => format!("Power Soft Start Slope: {}", value),
 
