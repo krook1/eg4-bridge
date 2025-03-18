@@ -30,10 +30,10 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 },
                 value)
         }
-        7 => format!("Firmware Version Code: {}", value),
-        8 => format!("Backup Firmware Version Code: {}", value),
-        9 => format!("Slave CPU Version (Redundant): {:#06x}", value),
-        10 => format!("Control CPU Version: {:#06x}", value),
+        7 => format!("Register: {} - Firmware Version Code: {}", reg, value),
+        8 => format!("Register: {} - Backup Firmware Version Code: {}", reg, value),
+        9 => format!("Register: {} - Slave CPU Version (Redundant): {:#06x}", reg, value),
+        10 => format!("Register: {} - Control CPU Version: {:#06x}", reg, value),
         11 => {
             let mut settings = Vec::new();
             if value & (1 << 0) != 0 { settings.push("Energy Record Clear"); }
@@ -52,7 +52,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             if value & (1 << 13) != 0 { settings.push("Reserved"); }
             if value & (1 << 14) != 0 { settings.push("Reserved"); }
             if value & (1 << 15) != 0 { settings.push("Reserved"); }
-            format!("Reset Settings: {:#018b}\nActive settings: {}", value, settings.join(", "))
+            format!("Register: {} - Reset Settings: {:#018b}\nActive settings: {}", reg, value, settings.join(", "))
         }
         12 => {
             let month = value >> 8;
@@ -69,9 +69,9 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             let minute = value & 0xFF;
             format!("Time: Second={} (0-59), Minute={} (0-59)", second, minute)
         }
-        15 => format!("Communication Address: {} (0-150)", value),
-        16 => format!("Language: {} (0=English, 1=German)", value),
-        19 => format!("Version: {}", value),
+        15 => format!("Register: {} - Communication Address: {} (0-150)", reg, value),
+        16 => format!("Register: {} - Language: {} (1=English)", reg, value),
+        19 => format!("Register: {} - Version: {}", reg, value),
         20 => {
             let mode = match value {
                 0 => "No PV",
@@ -84,7 +84,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 7 => "PV1&2&3 Connected (12K Hybrid)",
                 _ => "Unknown"
             };
-            format!("PV Input Mode: {} - {}", value, mode)
+            format!("Register: {} - PV Input Mode: {} - {}", reg, value, mode)
         }
         21 => {
             let mut features = Vec::new();
@@ -104,17 +104,17 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             if value & (1 << 13) != 0 { features.push("GFCI"); }
             if value & (1 << 14) != 0 { features.push("DCI"); }
             if value & (1 << 15) != 0 { features.push("Feed In Grid"); }
-            format!("Function Enable Flags: {:#018b}\nEnabled features: {}", value, features.join(", "))
+            format!("Register: {} - Function Enable Flags: {:#018b}\nEnabled features: {}", reg, value, features.join(", "))
         }
-        22 => format!("Start PV Voltage: {:.1} V (90.0-500.0V)", (value as f64) / 10.0),
-        23 => format!("Grid Connection Wait Time: {} seconds (30-600s)", value),
-        24 => format!("Grid Reconnection Wait Time: {} seconds (0-900s)", value),
+        22 => format!("Register: {} - Start PV Voltage: {:.1} V (90.0-500.0V)", reg, (value as f64) / 10.0),
+        23 => format!("Register: {} - Grid Connection Wait Time: {} seconds (30-600s)", reg, value),
+        24 => format!("Register: {} - Grid Reconnection Wait Time: {} seconds (0-900s)", reg, value),
 
         // Grid Connection Limits (25-28)
-        25 => format!("Grid Connect Low Voltage: {:.1} V", (value as f64) / 10.0),
-        26 => format!("Grid Connect High Voltage: {:.1} V", (value as f64) / 10.0),
-        27 => format!("Grid Connect Low Frequency: {:.2} Hz", (value as f64) / 100.0),
-        28 => format!("Grid Connect High Frequency: {:.2} Hz", (value as f64) / 100.0),
+        25 => format!("Register: {} - Grid Connect Low Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        26 => format!("Register: {} - Grid Connect High Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        27 => format!("Register: {} - Grid Connect Low Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
+        28 => format!("Register: {} - Grid Connect High Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
 
         // Grid Protection Settings (29-53)
         29..=53 => {
@@ -169,75 +169,75 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         63 => format!("Register: {} - Power Soft Start Slope: {}", reg, value),
 
         // System Control (64-67)
-        64 => format!("Register {} - System Charge Rate: {}%", reg, value),
-        65 => format!("Register {} - System Discharge Rate: {}%", reg, value),
-        66 => format!("Register {} - Grid Charge Power Rate: {}%", reg, value),
-        67 => format!("Register {} - AC Charge SOC Limit: {}%", reg, value),
+        64 => format!("Register: {} - System Charge Rate: {}%", reg, value),
+        65 => format!("Register: {} - System Discharge Rate: {}%", reg, value),
+        66 => format!("Register: {} - Grid Charge Power Rate: {}%", reg, value),
+        67 => format!("Register: {} - AC Charge SOC Limit: {}%", reg, value),
         68 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgStart_0 AC charging start time_hour
+            format!("Register: {} - ACChgStart_0 AC charging start time_hour
 setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         69 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         70 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgStart_1 AC charging start time_hour
+            format!("Register: {} - ACChgStart_1 AC charging start time_hour
 setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         71 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         72 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgStart_2 AC charging start time_hour
+            format!("Register: {} - ACChgStart_2 AC charging start time_hour
 setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         73 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         // Charging Priority Settings (74-79)
-        74 => format!("Register {} - ChgFirstPowerCMD - Charging Priority Percentage: {}%", reg, value),
-        75 => format!("Register {} - ChgFirstSOCLimit - Charging Priority SOC Limit: {}%", reg, value),
+        74 => format!("Register: {} - ChgFirstPowerCMD - Charging Priority Percentage: {}%", reg, value),
+        75 => format!("Register: {} - ChgFirstSOCLimit - Charging Priority SOC Limit: {}%", reg, value),
         76 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         77 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         78 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         79 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         80 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         81 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
 
         // System Type and Battery Settings (80-82)
@@ -254,13 +254,13 @@ setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         84 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ForcedDischgStart_0 - Forced discharge start
+            format!("Register: {} - ForcedDischgStart_0 - Forced discharge start
 time_hour setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         85 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
 
 
