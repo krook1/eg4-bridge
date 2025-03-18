@@ -206,9 +206,11 @@ impl Inverter {
         
         let stream = tokio::net::TcpStream::from_std(std_stream)?;
         
-        // Set TCP_NODELAY to minimize latency
-        if let Err(e) = stream.set_nodelay(true) {
-            warn!("Failed to set TCP_NODELAY: {}", e);
+        // Set TCP_NODELAY based on configuration
+        if inverter_config.use_tcp_nodelay() {
+            if let Err(e) = stream.set_nodelay(true) {
+                warn!("Failed to set TCP_NODELAY: {}", e);
+            }
         }
 
         let (reader, writer) = stream.into_split();

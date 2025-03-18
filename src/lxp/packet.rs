@@ -7,6 +7,12 @@ use serde::Serialize;
 use log::error;
 use std::convert::TryFrom;
 
+// Add these constants at the top of the file, after the imports
+pub const MIN_PACKET_SIZE: usize = 20; // Minimum valid packet size (same as in packet_decoder.rs)
+const MIN_TRANSLATED_DATA_SIZE: usize = 38; // header(18) + data(18) + checksum(2)
+const MIN_INPUT_BLOCK_SIZE: usize = 80; // Minimum size for input register blocks
+const MIN_INPUT_ALL_SIZE: usize = 254; // Size for ReadInputAll
+
 #[derive(Clone, Debug)]
 pub enum ReadInput {
     ReadInputAll(Box<ReadInputAll>),
@@ -1428,15 +1434,21 @@ impl TranslatedData {
     }
 
     pub fn read_input(&self) -> Result<ReadInput> {
+        // Validate minimum value size before processing
+        if self.values.len() < 2 {
+            bail!("Input values too short: {} bytes", self.values.len());
+        }
+
         match (self.register, self.values.len()) {
-            (0, 254) => Ok(ReadInput::ReadInputAll(Box::new(self.read_input_all()?))),
-            (0, 80) => Ok(ReadInput::ReadInput1(self.read_input1()?)),
-            (40, 80) => Ok(ReadInput::ReadInput2(self.read_input2()?)),
-            (80, 80) => Ok(ReadInput::ReadInput3(self.read_input3()?)),
-            (120, 80) => Ok(ReadInput::ReadInput4(self.read_input4()?)),
-            (160, 80) => Ok(ReadInput::ReadInput5(self.read_input5()?)),
-            (200, 80) => Ok(ReadInput::ReadInput6(self.read_input6()?)),
-            (r1, r2) => bail!("unhandled ReadInput register={} len={}", r1, r2),
+            (0, len) if len == MIN_INPUT_ALL_SIZE => Ok(ReadInput::ReadInputAll(Box::new(self.read_input_all()?))),
+            (0, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput1(self.read_input1()?)),
+            (40, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput2(self.read_input2()?)),
+            (80, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput3(self.read_input3()?)),
+            (120, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput4(self.read_input4()?)),
+            (160, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput5(self.read_input5()?)),
+            (200, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput6(self.read_input6()?)),
+            (r1, r2) => bail!("Invalid ReadInput block: register={}, len={} (expected {} or {})", 
+                r1, r2, MIN_INPUT_BLOCK_SIZE, MIN_INPUT_ALL_SIZE),
         }
     }
 
@@ -1484,6 +1496,16 @@ impl TranslatedData {
     }
 
     fn read_input2(&self) -> Result<ReadInput2> {
+        // Validate minimum size for ReadInput2 including bat_brand and bat_com_type
+        let min_size = 80;  // Minimum size for ReadInput2 block
+        if self.values.len() < min_size {
+            return Err(anyhow!(
+                "ReadInput2 data too short: {} bytes (minimum required: {}). Cannot read bat_brand and bat_com_type",
+                self.values.len(),
+                min_size
+            ));
+        }
+
         match ReadInput2::parse(&self.values) {
             Ok((_, mut r)) => {
                 // Log the raw values for debugging
@@ -1496,6 +1518,22 @@ impl TranslatedData {
                 if r.bat_com_type == 0 {
                     warn!("ReadInput2: bat_com_type is 0, this may indicate missing or invalid data");
                 }
+
+                // Validate battery brand value
+                match r.bat_brand {
+                    0 => warn!("ReadInput2: bat_brand is Unknown/Not configured"),
+                    1 => debug!("ReadInput2: bat_brand is Pylon"),
+                    2 => debug!("ReadInput2: bat_brand is Dyness"),
+                    unknown => warn!("ReadInput2: Unknown bat_brand value: {}", unknown),
+                }
+
+                // Validate battery communication type
+                match r.bat_com_type {
+                    0 => warn!("ReadInput2: bat_com_type is Unknown/Not configured"),
+                    1 => debug!("ReadInput2: bat_com_type is RS485"),
+                    2 => debug!("ReadInput2: bat_com_type is CAN"),
+                    unknown => warn!("ReadInput2: Unknown bat_com_type value: {}", unknown),
+                }
                 
                 r.e_pv_all = Utils::round(r.e_pv_all_1 + r.e_pv_all_2 + r.e_pv_all_3, 1);
                 r.datalog = self.datalog;
@@ -1503,7 +1541,12 @@ impl TranslatedData {
             }
             Err(e) => {
                 // Provide more detailed error information
-                let error_msg = format!("Failed to parse ReadInput2: {:?}. Values: {:?}", e, self.values);
+                let error_msg = format!(
+                    "Failed to parse ReadInput2: {:?}. Values length: {}, Raw values: {:?}",
+                    e,
+                    self.values.len(),
+                    self.values
+                );
                 error!("{}", error_msg);
                 Err(anyhow!(error_msg))
             }
@@ -1598,14 +1641,20 @@ impl TranslatedData {
 
     fn decode(input: &[u8]) -> Result<Self> {
         let len = input.len();
-        if len < 38 {
-            bail!("TranslatedData::decode packet too short");
+        if len < MIN_TRANSLATED_DATA_SIZE {
+            bail!("TranslatedData::decode packet too short: {} bytes (minimum {})", 
+                len, MIN_TRANSLATED_DATA_SIZE);
         }
 
         let protocol = Utils::u16ify(input, 2);
         let datalog = Serial::new(&input[8..18])?;
 
         let data = &input[20..len - 2];
+
+        // Validate data length
+        if data.len() < 14 { // Minimum data size: address(1) + function(1) + serial(10) + register(2)
+            bail!("TranslatedData::decode data section too short: {} bytes", data.len());
+        }
 
         let checksum = &input[len - 2..];
         if Self::checksum(data) != checksum {
@@ -2108,5 +2157,64 @@ impl FaultCodeString {
             31 => "E031: Internal communication fault 4",
             _ => todo!("Unknown Fault"),
         }
+    }
+}
+
+pub struct BatteryStatusString;
+impl BatteryStatusString {
+    pub fn decode_status_9(value: u16) -> Vec<&'static str> {
+        let mut statuses = Vec::new();
+        
+        // Decode each bit of bat_status_9
+        if value & (1 << 0) != 0 { statuses.push("Cell Balancing Active"); }
+        if value & (1 << 1) != 0 { statuses.push("Charging Enabled"); }
+        if value & (1 << 2) != 0 { statuses.push("Discharging Enabled"); }
+        if value & (1 << 3) != 0 { statuses.push("Heating Active"); }
+        if value & (1 << 4) != 0 { statuses.push("Battery Full"); }
+        if value & (1 << 5) != 0 { statuses.push("Battery Empty"); }
+        if value & (1 << 6) != 0 { statuses.push("SOC Calibration Active"); }
+        if value & (1 << 7) != 0 { statuses.push("BMS Fault Present"); }
+        if value & (1 << 8) != 0 { statuses.push("BMS Warning Present"); }
+        if value & (1 << 9) != 0 { statuses.push("Protection Active"); }
+        if value & (1 << 10) != 0 { statuses.push("Battery Disconnected"); }
+        if value & (1 << 11) != 0 { statuses.push("Battery Sleeping"); }
+        if value & (1 << 12) != 0 { statuses.push("Battery Standby"); }
+        if value & (1 << 13) != 0 { statuses.push("Battery Power Save"); }
+        if value & (1 << 14) != 0 { statuses.push("Battery Self Testing"); }
+        if value & (1 << 15) != 0 { statuses.push("Battery Fault"); }
+
+        if statuses.is_empty() {
+            statuses.push("No Status Flags Set");
+        }
+        
+        statuses
+    }
+
+    pub fn decode_status_inv(value: u16) -> Vec<&'static str> {
+        let mut statuses = Vec::new();
+        
+        // Decode each bit of bat_status_inv
+        if value & (1 << 0) != 0 { statuses.push("Inverter Battery Active"); }
+        if value & (1 << 1) != 0 { statuses.push("Inverter Charging"); }
+        if value & (1 << 2) != 0 { statuses.push("Inverter Discharging"); }
+        if value & (1 << 3) != 0 { statuses.push("Battery Communication OK"); }
+        if value & (1 << 4) != 0 { statuses.push("BMS Protocol Matched"); }
+        if value & (1 << 5) != 0 { statuses.push("Battery Type Matched"); }
+        if value & (1 << 6) != 0 { statuses.push("Battery Power Limited"); }
+        if value & (1 << 7) != 0 { statuses.push("Battery Current Limited"); }
+        if value & (1 << 8) != 0 { statuses.push("Battery Voltage Limited"); }
+        if value & (1 << 9) != 0 { statuses.push("Battery Temperature Limited"); }
+        if value & (1 << 10) != 0 { statuses.push("Battery SOC Limited"); }
+        if value & (1 << 11) != 0 { statuses.push("Battery Maintenance Mode"); }
+        if value & (1 << 12) != 0 { statuses.push("Battery Force Charging"); }
+        if value & (1 << 13) != 0 { statuses.push("Battery Force Discharging"); }
+        if value & (1 << 14) != 0 { statuses.push("Battery Calibration Mode"); }
+        if value & (1 << 15) != 0 { statuses.push("Battery Protection Active"); }
+
+        if statuses.is_empty() {
+            statuses.push("No Status Flags Set");
+        }
+        
+        statuses
     }
 }

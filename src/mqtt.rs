@@ -185,11 +185,30 @@ impl Message {
                     payload: bat_com_type_str.to_string(),
                 });
             },
-            Ok(ReadInput::ReadInput3(r3)) => r.push(mqtt::Message {
-                topic: format!("{}/inputs/3", td.datalog),
-                retain: false,
-                payload: serde_json::to_string(&r3)?,
-            }),
+            Ok(ReadInput::ReadInput3(r3)) => {
+                // Create the main message with all data
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/3", td.datalog),
+                    retain: false,
+                    payload: serde_json::to_string(&r3)?,
+                });
+
+                // Add decoded battery status messages
+                let status_9_decoded = packet::BatteryStatusString::decode_status_9(r3.bat_status_9);
+                let status_inv_decoded = packet::BatteryStatusString::decode_status_inv(r3.bat_status_inv);
+
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/3/bat_status_9_decoded", td.datalog),
+                    retain: false,
+                    payload: status_9_decoded.join(", "),
+                });
+
+                r.push(mqtt::Message {
+                    topic: format!("{}/inputs/3/bat_status_inv_decoded", td.datalog),
+                    retain: false,
+                    payload: status_inv_decoded.join(", "),
+                });
+            },
             Ok(ReadInput::ReadInput4(r4)) => r.push(mqtt::Message {
                 topic: format!("{}/inputs/4", td.datalog),
                 retain: false,

@@ -8,6 +8,8 @@ use tokio_util::codec::Decoder;
 const MAX_PACKET_SIZE: usize = 1024; // Adjust this value based on protocol specifications
 // Magic header bytes that identify a valid LXP packet
 const HEADER_BYTES: [u8; 2] = [161, 26];
+// Minimum valid packet size: header(2) + protocol(2) + length(2) + unknown(1) + tcp_function(1) + datalog(10) + min_payload(2)
+const MIN_PACKET_SIZE: usize = 20;
 
 pub struct PacketDecoder(());
 
@@ -71,6 +73,7 @@ impl Decoder for PacketDecoder {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let src_len = src.len();
 
+        // First check if we have enough bytes for the basic header
         if src_len < 6 {
             // Not enough data to read header (2 bytes) + protocol (2 bytes) + length (2 bytes)
             trace!("Waiting for more data, current length: {}", src_len);
@@ -89,6 +92,18 @@ impl Decoder for PacketDecoder {
         // Read packet length (little-endian)
         let packet_len = usize::from(u16::from_le_bytes([src[4], src[5]]));
         
+        // Total frame length includes 6-byte header
+        let frame_len = 6 + packet_len;
+
+        // Check if the total frame length meets minimum size requirement
+        if frame_len < MIN_PACKET_SIZE {
+            debug!("Total frame length {} is too small (minimum valid packet size is {})", frame_len, MIN_PACKET_SIZE);
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                format!("Total frame length {} is too small (minimum valid packet size is {})", frame_len, MIN_PACKET_SIZE)
+            ));
+        }
+        
         // Check against maximum allowed size
         if packet_len > MAX_PACKET_SIZE {
             debug!("Packet size {} exceeds maximum allowed size {}", packet_len, MAX_PACKET_SIZE);
@@ -98,9 +113,7 @@ impl Decoder for PacketDecoder {
             ));
         }
 
-        // Total frame length includes 6-byte header
-        let frame_len = 6 + packet_len;
-
+        // Wait for complete frame
         if src_len < frame_len {
             // Partial frame - reserve space for the remaining bytes
             trace!("Waiting for complete frame: have {}, need {}", src_len, frame_len);

@@ -35,6 +35,7 @@ pub struct Inverter {
     pub heartbeats: Option<bool>,
     pub publish_holdings_on_connect: Option<bool>,
     pub read_timeout: Option<u64>,
+    pub use_tcp_nodelay: Option<bool>,
 }
 impl Inverter {
     pub fn enabled(&self) -> bool {
@@ -67,6 +68,10 @@ impl Inverter {
 
     pub fn read_timeout(&self) -> u64 {
         self.read_timeout.unwrap_or(900) // 15 minutes
+    }
+
+    pub fn use_tcp_nodelay(&self) -> bool {
+        self.use_tcp_nodelay.unwrap_or(true)  // Default to true for backward compatibility
     }
 } // }}}
 

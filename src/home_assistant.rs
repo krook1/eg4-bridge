@@ -249,6 +249,32 @@ impl Config {
                 ..base.clone()
             },
             Entity {
+                key: "bat_status_9",
+                name: "Battery Status",
+                entity_category: Some("diagnostic"),
+                state_topic: &format!(
+                    "{}/{}/inputs/3/bat_status_9_decoded",
+                    self.mqtt_config.namespace(),
+                    self.inverter.datalog()
+                ),
+                value_template: ValueTemplate::None,
+                icon: Some("mdi:battery-status-variant"),
+                ..base.clone()
+            },
+            Entity {
+                key: "bat_status_inv",
+                name: "Battery Inverter Status",
+                entity_category: Some("diagnostic"),
+                state_topic: &format!(
+                    "{}/{}/inputs/3/bat_status_inv_decoded",
+                    self.mqtt_config.namespace(),
+                    self.inverter.datalog()
+                ),
+                value_template: ValueTemplate::None,
+                icon: Some("mdi:battery-sync"),
+                ..base.clone()
+            },
+            Entity {
                 key: "v_bat",
                 name: "Battery Voltage",
                 ..voltage.clone()
