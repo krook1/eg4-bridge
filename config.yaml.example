@@ -12,6 +12,8 @@ inverters:
   use_tcp_nodelay: true
   # Read timeout in seconds before considering connection dead (default: 900)
   read_timeout: 900
+  # Size of register blocks to read (1-40, default: 40)
+  register_block_size: 40
 - enabled: false
   host: 192.168.0.163
   port: 8000
@@ -23,6 +25,8 @@ inverters:
   use_tcp_nodelay: true
   # Read timeout in seconds before considering connection dead (default: 900)
   read_timeout: 900
+  # Size of register blocks to read (1-40, default: 40)
+  register_block_size: 40
 
 databases:
 - enabled: false

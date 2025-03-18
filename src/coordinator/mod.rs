@@ -6,18 +6,9 @@ use std::sync::{Arc, Mutex};
 use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput2, ReadInput3, ReadInput4, ReadInput5, ReadInput6};
 use lxp::inverter;
 
-// Configurable timeouts
-const WRITE_TIMEOUT_MS: u64 = 5000;  // 5 seconds
-const READ_TIMEOUT_MS: u64 = 5000;   // 5 seconds
-const CONNECT_TIMEOUT_MS: u64 = 10000; // 10 seconds
+// Sleep durations - keeping only the ones actively used
 const RETRY_DELAY_MS: u64 = 1000;    // 1 second
-const CHANNEL_TIMEOUT_MS: u64 = 1000; // 1 second
-
-// Sleep durations
-const INVERTER_POLL_INTERVAL_MS: u64 = 5;  // Time between inverter polls
-const MQTT_RETRY_INTERVAL_MS: u64 = 100;   // Time between MQTT retries
-const CACHE_RETRY_INTERVAL_MS: u64 = 50;   // Time between cache retries
-const COMMAND_DELAY_MS: u64 = 1;           // Delay between commands
+const DELAY_MS: u64 = 100; // 100ms delay between requests
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ChannelData {
@@ -208,12 +199,12 @@ impl Coordinator {
         use Command::*;
 
         match command {
-            ReadInputs(inverter, 1) => self.read_inputs(inverter.clone(), 0_u16, 40).await?,
-            ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, 40).await?,
-            ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, 40).await?,
-            ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, 40).await?,
-            ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, 40).await?,
-            ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, 40).await?,
+            ReadInputs(inverter, 1) => self.read_inputs(inverter.clone(), 0_u16, inverter.register_block_size()).await?,
+            ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
+            ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, inverter.register_block_size()).await?,
+            ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, inverter.register_block_size()).await?,
+            ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, inverter.register_block_size()).await?,
+            ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
             ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
             ReadInput(inverter, register, count) => {
                 self.read_inputs(inverter.clone(), register, count).await?
@@ -833,17 +824,19 @@ impl Coordinator {
             values: vec![],
         });
 
+        let block_size = inverter.register_block_size();
+
         // Read all holding register blocks
-        for start_register in (0..=240).step_by(40) {
+        for start_register in (0..=240).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
-            self.read_hold(inverter.clone(), start_register as u16, 40).await?;
+            self.read_hold(inverter.clone(), start_register as u16, block_size).await?;
             tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 
         // Read all input register blocks
-        for start_register in (0..=200).step_by(40) {
+        for start_register in (0..=200).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
-            self.read_inputs(inverter.clone(), start_register as u16, 40).await?;
+            self.read_inputs(inverter.clone(), start_register as u16, block_size).await?;
             tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 

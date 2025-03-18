@@ -36,6 +36,7 @@ pub struct Inverter {
     pub publish_holdings_on_connect: Option<bool>,
     pub read_timeout: Option<u64>,
     pub use_tcp_nodelay: Option<bool>,
+    pub register_block_size: Option<u16>,
 }
 impl Inverter {
     pub fn enabled(&self) -> bool {
@@ -72,6 +73,10 @@ impl Inverter {
 
     pub fn use_tcp_nodelay(&self) -> bool {
         self.use_tcp_nodelay.unwrap_or(true)  // Default to true for backward compatibility
+    }
+
+    pub fn register_block_size(&self) -> u16 {
+        self.register_block_size.unwrap_or(40)  // Default to 40 for backward compatibility
     }
 } // }}}
 

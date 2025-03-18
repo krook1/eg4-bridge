@@ -10,7 +10,8 @@ use std::convert::TryFrom;
 // Add these constants at the top of the file, after the imports
 pub const MIN_PACKET_SIZE: usize = 20; // Minimum valid packet size (same as in packet_decoder.rs)
 const MIN_TRANSLATED_DATA_SIZE: usize = 38; // header(18) + data(18) + checksum(2)
-const MIN_INPUT_BLOCK_SIZE: usize = 80; // Minimum size for input register blocks
+const MIN_INPUT_BLOCK_SIZE: usize = 2; // Minimum size for input register blocks (1 register = 2 bytes)
+const MAX_INPUT_BLOCK_SIZE: usize = 80; // Maximum size for input register blocks (40 registers = 80 bytes)
 const MIN_INPUT_ALL_SIZE: usize = 254; // Size for ReadInputAll
 
 #[derive(Clone, Debug)]
@@ -1435,20 +1436,30 @@ impl TranslatedData {
 
     pub fn read_input(&self) -> Result<ReadInput> {
         // Validate minimum value size before processing
-        if self.values.len() < 2 {
+        if self.values.len() < MIN_INPUT_BLOCK_SIZE {
             bail!("Input values too short: {} bytes", self.values.len());
         }
 
         match (self.register, self.values.len()) {
             (0, len) if len == MIN_INPUT_ALL_SIZE => Ok(ReadInput::ReadInputAll(Box::new(self.read_input_all()?))),
-            (0, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput1(self.read_input1()?)),
-            (40, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput2(self.read_input2()?)),
-            (80, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput3(self.read_input3()?)),
-            (120, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput4(self.read_input4()?)),
-            (160, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput5(self.read_input5()?)),
-            (200, len) if len == MIN_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput6(self.read_input6()?)),
-            (r1, r2) => bail!("Invalid ReadInput block: register={}, len={} (expected {} or {})", 
-                r1, r2, MIN_INPUT_BLOCK_SIZE, MIN_INPUT_ALL_SIZE),
+            (0, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput1(self.read_input1()?)),
+            (40, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput2(self.read_input2()?)),
+            (80, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput3(self.read_input3()?)),
+            (120, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput4(self.read_input4()?)),
+            (160, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput5(self.read_input5()?)),
+            (200, len) if len <= MAX_INPUT_BLOCK_SIZE => Ok(ReadInput::ReadInput6(self.read_input6()?)),
+            (r1, r2) => {
+                let valid_registers = vec![0, 40, 80, 120, 160, 200];
+                let register_info = if valid_registers.contains(&r1) {
+                    format!("Register {} is valid, but received incorrect length", r1)
+                } else {
+                    format!("Register {} is invalid. Valid registers are: {:?}", r1, valid_registers)
+                };
+                
+                bail!("Invalid ReadInput block: {} - received length={}, expected between {} and {} bytes or {}. \
+                      Each input block should start at a multiple of 40 up to 200.", 
+                      register_info, r2, MIN_INPUT_BLOCK_SIZE, MAX_INPUT_BLOCK_SIZE, MIN_INPUT_ALL_SIZE)
+            }
         }
     }
 

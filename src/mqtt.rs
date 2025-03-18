@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::lxp::packet::BatteryStatusString;
 
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Publish, QoS};
 
@@ -194,8 +195,8 @@ impl Message {
                 });
 
                 // Add decoded battery status messages
-                let status_9_decoded = packet::BatteryStatusString::decode_status_9(r3.bat_status_9);
-                let status_inv_decoded = packet::BatteryStatusString::decode_status_inv(r3.bat_status_inv);
+                let status_9_decoded = BatteryStatusString::decode_status_9(r3.bat_status_9);
+                let status_inv_decoded = BatteryStatusString::decode_status_inv(r3.bat_status_inv);
 
                 r.push(mqtt::Message {
                     topic: format!("{}/inputs/3/bat_status_9_decoded", td.datalog),
