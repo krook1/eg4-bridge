@@ -188,19 +188,28 @@ pub struct ReadInputAll {
     #[nom(Parse = "Utils::le_u16_div10")]
     pub vbat_inv: f64,
 
-    // 14 bytes I'm not sure what they are; possibly generator stuff
-    #[nom(SkipBefore(14))]
-    // something about half bus voltage
-    #[nom(SkipBefore(2))]
+    // Generator and bus voltage data (previously skipped 14 bytes)
+    pub gen_status: u16,          // Generator status (0=Off, 1=Starting, 2=Running, 3=Stopping, 4=Error)
+    pub gen_power_factor: u16,    // Generator power factor (0-1000, divide by 1000 for actual value)
+    pub gen_current: u16,         // Generator current in Amps (0-100A)
+    pub gen_power_limit: u16,     // Generator power limit setting in Watts (0-10000W)
+    pub gen_connect_status: u16,  // Generator connection status (0=Disconnected, 1=Connected)
+    pub gen_control_mode: u16,    // Generator control mode (0=Auto, 1=Manual, 2=Test)
+    pub gen_dispatch_mode: u16,   // Generator dispatch mode (0=Off, 1=On, 2=Auto)
+
+    // Half bus voltage data (previously skipped 2 bytes)
     #[nom(Parse = "Utils::le_u16_div10")]
-    pub v_gen: f64,
+    pub v_bus_half: f64,         // Half bus voltage (V) - Expected range: 0-1000V
+
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub v_gen: f64,              // Generator voltage (V) - Expected range: 180-270V
     #[nom(Parse = "Utils::le_u16_div100")]
-    pub f_gen: f64,
-    pub p_gen: u16,
+    pub f_gen: f64,              // Generator frequency (Hz) - Expected range: 45-65Hz when running
+    pub p_gen: u16,              // Generator power output (W) - Expected range: 0-10000W
     #[nom(Parse = "Utils::le_u16_div10")]
-    pub e_gen_day: f64,
+    pub e_gen_day: f64,          // Generator daily energy production (kWh) - Expected range: 0-1000kWh
     #[nom(Parse = "Utils::le_u32_div10")]
-    pub e_gen_all: f64,
+    pub e_gen_all: f64,          // Generator total energy production (kWh) - Expected range: 0-999999kWh
     #[nom(Parse = "Utils::le_u16_div10")]
     pub v_eps_l1: f64,
     #[nom(Parse = "Utils::le_u16_div10")]
@@ -287,6 +296,28 @@ impl ReadInputAll {
         }
         if self.f_eps < 45.0 || self.f_eps > 65.0 {
             return Err(anyhow!("Invalid EPS frequency: {}", self.f_eps));
+        }
+
+        // Validate generator measurements
+        if self.v_gen > 0.0 && (self.v_gen < 180.0 || self.v_gen > 270.0) {
+            return Err(anyhow!("Invalid generator voltage: {}", self.v_gen));
+        }
+        if self.f_gen > 0.0 && (self.f_gen < 45.0 || self.f_gen > 65.0) {
+            return Err(anyhow!("Invalid generator frequency: {}", self.f_gen));
+        }
+        if self.p_gen > 10000 {
+            return Err(anyhow!("Invalid generator power: {}", self.p_gen));
+        }
+        if self.gen_power_factor > 1000 {
+            return Err(anyhow!("Invalid generator power factor: {}", self.gen_power_factor));
+        }
+        if self.gen_current > 100 {
+            return Err(anyhow!("Invalid generator current: {}", self.gen_current));
+        }
+
+        // Validate bus voltage
+        if self.v_bus_half > 1000.0 {
+            return Err(anyhow!("Invalid half bus voltage: {}", self.v_bus_half));
         }
 
         Ok(())
@@ -614,45 +645,65 @@ pub struct ReadInput3 {
 #[derive(Clone, Debug, Serialize, Nom)]
 #[nom(LittleEndian)]
 pub struct ReadInput4 {
-    // something about half bus voltage
+    // Half bus voltage (V) - Expected range: 0-1000V
     #[nom(SkipBefore(2))]
     #[nom(Parse = "Utils::le_u16_div10")]
     pub v_gen: f64,
+    // Generator frequency (Hz) - Expected range: 45-65Hz when running
     #[nom(Parse = "Utils::le_u16_div100")]
     pub f_gen: f64,
+    // Generator power output (W) - Expected range: 0-10000W
     pub p_gen: u16,
+    // Generator daily energy production (kWh) - Expected range: 0-1000kWh
     #[nom(Parse = "Utils::le_u16_div10")]
     pub e_gen_day: f64,
+    // Generator total energy production (kWh) - Expected range: 0-999999kWh
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_gen_all: f64,
+    // EPS voltage L1 (V) - Expected range: 180-270V
     #[nom(Parse = "Utils::le_u16_div10")]
     pub v_eps_l1: f64,
+    // EPS voltage L2 (V) - Expected range: 180-270V
     #[nom(Parse = "Utils::le_u16_div10")]
     pub v_eps_l2: f64,
+    // EPS power L1 (W) - Expected range: 0-10000W
     pub p_eps_l1: u16,
+    // EPS power L2 (W) - Expected range: 0-10000W
     pub p_eps_l2: u16,
+    // EPS apparent power L1 (VA) - Expected range: 0-10000VA
     pub s_eps_l1: u16,
+    // EPS apparent power L2 (VA) - Expected range: 0-10000VA
     pub s_eps_l2: u16,
+    // EPS daily energy L1 (kWh) - Expected range: 0-1000kWh
     #[nom(Parse = "Utils::le_u16_div10")]
     pub e_eps_l1_day: f64,
+    // EPS daily energy L2 (kWh) - Expected range: 0-1000kWh
     #[nom(Parse = "Utils::le_u16_div10")]
     pub e_eps_l2_day: f64,
+    // EPS total energy L1 (kWh) - Expected range: 0-999999kWh
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_eps_l1_all: f64,
+    // EPS total energy L2 (kWh) - Expected range: 0-999999kWh
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_eps_l2_all: f64,
 
     // Additional EPS values
+    // EPS current L1 (A) - Expected range: 0-50A
     #[nom(Parse = "Utils::le_u16_div100")]
     pub i_eps_l1: f64,
+    // EPS current L2 (A) - Expected range: 0-50A
     #[nom(Parse = "Utils::le_u16_div100")]
     pub i_eps_l2: f64,
+    // EPS power factor L1 - Expected range: 0-1.0
     #[nom(Parse = "Utils::le_u16_div1000")]
     pub pf_eps_l1: f64,
+    // EPS power factor L2 - Expected range: 0-1.0
     #[nom(Parse = "Utils::le_u16_div1000")]
     pub pf_eps_l2: f64,
+    // EPS frequency L1 (Hz) - Expected range: 45-65Hz
     #[nom(Parse = "Utils::le_u16_div100")]
     pub f_eps_l1: f64,
+    // EPS frequency L2 (Hz) - Expected range: 45-65Hz
     #[nom(Parse = "Utils::le_u16_div100")]
     pub f_eps_l2: f64,
 
