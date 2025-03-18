@@ -419,44 +419,91 @@ impl ReadInput1 {
 #[derive(Clone, Debug, Serialize, Nom)]
 #[nom(Debug, LittleEndian)]
 pub struct ReadInput2 {
+    // Total PV energy (derived from sum of e_pv_all_1/2/3)
     #[nom(Ignore)]
     pub e_pv_all: f64,
+    // Total PV energy from string 1 (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_pv_all_1: f64,
+    // Total PV energy from string 2 (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_pv_all_2: f64,
+    // Total PV energy from string 3 (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_pv_all_3: f64,
 
+    // Total energy fed into grid through inverter (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_inv_all: f64,
+    // Total energy received from grid (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_rec_all: f64,
+    // Total energy used to charge battery (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_chg_all: f64,
+    // Total energy discharged from battery (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_dischg_all: f64,
+    // Total energy supplied to EPS loads (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_eps_all: f64,
+    // Total energy exported to grid (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_to_grid_all: f64,
+    // Total energy consumed from grid (kWh)
     #[nom(Parse = "Utils::le_u32_div10")]
     pub e_to_user_all: f64,
 
+    // System fault code (bitmap)
     pub fault_code: u32,
+    // System warning code (bitmap)
     pub warning_code: u32,
 
+    // Internal temperature (°C)
     pub t_inner: u16,
+    // Radiator temperature 1 (°C)
     pub t_rad_1: u16,
+    // Radiator temperature 2 (°C)
     pub t_rad_2: u16,
+    // Battery temperature (°C)
     pub t_bat: u16,
 
-    #[nom(SkipBefore(2))] // reserved
+    // Radiator temperature 3 (°C)
+    pub t_rad_3: u16,
+
+    // Total runtime in seconds
     pub runtime: u32,
-    // 18 bytes of auto_test stuff here I'm not doing yet
-    //
+
+    // Auto-test data (18 bytes total)
+    // Current status of auto-test (0=not running, 1=in progress)
+    pub auto_test_status: u16,
+    // Current stage of testing sequence
+    pub auto_test_stage: u16,
+    // Time remaining or timeout value for current test
+    pub auto_test_timeout: u16,
+    // Upper frequency limit being tested (Hz)
+    pub auto_test_frequency_upper: u16,
+    // Lower frequency limit being tested (Hz)
+    pub auto_test_frequency_lower: u16,
+    // Upper voltage limit being tested (V)
+    pub auto_test_voltage_upper: u16,
+    // Lower voltage limit being tested (V)
+    pub auto_test_voltage_lower: u16,
+    // Power reading during test (W)
+    pub auto_test_power: u16,
+    // Result code from auto-test
+    pub auto_test_result: u16,
+
+    // Battery information
+    // Battery manufacturer/brand identifier
+    pub bat_brand: u8,
+    // Battery communication protocol type
+    pub bat_com_type: u8,
+
+    // Timestamp of reading
     #[nom(Parse = "Utils::current_time_for_nom")]
     pub time: UnixTime,
+    // Datalog serial number
     #[nom(Ignore)]
     pub datalog: Serial,
 }
