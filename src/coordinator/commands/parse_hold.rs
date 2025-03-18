@@ -32,8 +32,8 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         }
         7 => format!("Firmware Version Code: {}", value),
         8 => format!("Backup Firmware Version Code: {}", value),
-        9 => format!("Slave CPU Version (Redundant): {}", value),
-        10 => format!("Control CPU Version: {}", value),
+        9 => format!("Slave CPU Version (Redundant): {:#06x}", value),
+        10 => format!("Control CPU Version: {:#06x}", value),
         11 => {
             let mut settings = Vec::new();
             if value & (1 << 0) != 0 { settings.push("Energy Record Clear"); }
