@@ -178,33 +178,33 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         74 => format!("Register {} - Charging Priority Percentage: {}%", reg, value),
         75 => format!("Register {} - Charging Priority SOC Limit: {}%", reg, value),
         76 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority Start Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         77 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority End Time: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         78 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority Start Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         79 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority End Time 1: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         80 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority Start Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
         81 => {
-            let hour = (value >> 8) & 0xFF;
-            let minute = value & 0xFF;
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
             format!("Register {} - Charging Priority End Time 2: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
         },
 
