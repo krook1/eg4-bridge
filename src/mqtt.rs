@@ -164,6 +164,11 @@ impl Message {
                 retain: false,
                 payload: serde_json::to_string(&r4)?,
             }),
+            Ok(ReadInput::ReadInput5(r5)) => r.push(mqtt::Message {
+                topic: format!("{}/inputs/5", td.datalog),
+                retain: false,
+                payload: serde_json::to_string(&r5)?,
+            }),
             Err(x) => warn!("ignoring {:?}", x),
         }
 
@@ -180,6 +185,8 @@ impl Message {
             ["read", "inputs", "2"] => ReadInputs(inverter, 2),
             ["read", "inputs", "3"] => ReadInputs(inverter, 3),
             ["read", "inputs", "4"] => ReadInputs(inverter, 4),
+            ["read", "inputs", "5"] => ReadInputs(inverter, 5),
+            ["read", "inputs", "6"] => ReadInputs(inverter, 6),
             ["read", "input", register] => {
                 ReadInput(inverter, register.parse()?, self.payload_int_or_1()?)
             }
@@ -213,13 +220,10 @@ impl Message {
             ["set", "charge_rate_pct"] => ChargeRate(inverter, self.payload_int()?),
             ["set", "discharge_rate_pct"] => DischargeRate(inverter, self.payload_int()?),
             ["set", "ac_charge_rate_pct"] => AcChargeRate(inverter, self.payload_int()?),
-
             ["set", "ac_charge_soc_limit_pct"] => AcChargeSocLimit(inverter, self.payload_int()?),
-
             ["set", "discharge_cutoff_soc_limit_pct"] => {
                 DischargeCutoffSocLimit(inverter, self.payload_int()?)
             }
-
             [..] => bail!("unhandled: {:?}", self),
         };
 

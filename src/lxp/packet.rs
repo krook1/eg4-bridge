@@ -14,6 +14,8 @@ pub enum ReadInput {
     ReadInput2(ReadInput2),
     ReadInput3(ReadInput3),
     ReadInput4(ReadInput4),
+    ReadInput5(ReadInput5),
+    ReadInput6(ReadInput6),
 }
 
 // {{{ ReadInputAll
@@ -246,6 +248,91 @@ pub struct ReadInputAll {
     pub time: UnixTime,
     #[nom(Ignore)]
     pub datalog: Serial,
+
+    // Battery configuration from ReadInput5
+    pub bat_cell_count: u16,          // Number of battery cells in series
+    pub bat_parallel_count: u16,      // Number of battery cells in parallel
+    pub under_freq_start: u16,        // Underfrequency load reduction starting point
+    pub under_freq_end: u16,          // Underfrequency derating end point
+    pub under_freq_slope: u16,        // Underfrequency load shedding slope
+    pub max_compensation: u16,        // Maximum compensation amount for specific load
+    pub chg_power_pct: u16,          // Charging power percentage setting
+    pub dischg_power_pct: u16,       // Discharge power percentage setting
+    pub ac_charge_pct: u16,          // AC charge percentage setting
+    pub chg_priority_pct: u16,       // Charging priority percentage setting
+    pub forced_dischg_pct: u16,      // Forced discharge percentage setting
+    pub inv_power_pct: u16,          // Inverter active power percentage setting
+    
+    // AC charging parameters
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ac_chg_start_v: f64,         // AC charging starting battery voltage
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ac_chg_end_v: f64,           // AC charging cut off battery voltage
+    pub ac_chg_start_soc: u16,       // AC charging starting SOC
+    pub ac_chg_end_soc: u16,         // AC charging stops SOC
+    
+    // Battery voltage parameters
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_v: f64,              // Battery undervoltage alarm point
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_back_v: f64,         // Battery undervoltage alarm recovery point
+    pub bat_low_soc: u16,            // Battery undervoltage alarm point (SOC)
+    pub bat_low_back_soc: u16,       // Battery undervoltage alarm recovery point (SOC)
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_utility_v: f64,      // Battery undervoltage to mains voltage point
+    pub bat_low_utility_soc: u16,    // Battery undervoltage to mains SOC
+    
+    // Additional parameters
+    pub ac_chg_curr: u16,            // AC charge current
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ongrid_eod_v: f64,           // On-grid EOD voltage
+    
+    // SOC curve data
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub soc_volt1: f64,              // SOC curve voltage point 1
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub soc_volt2: f64,              // SOC curve voltage point 2
+    pub soc_pct1: u16,               // SOC percentage point 1
+    pub soc_pct2: u16,               // SOC percentage point 2
+    pub soc_inner_resistance: u16,    // SOC curve inner resistance
+    
+    // Power settings
+    pub max_grid_input_power: u16,    // Maximum grid input power
+    pub gen_rated_power: u16,         // Generator rated power
+    
+    // Function enable flags
+    pub function_bit_flags: u16,      // Combined function enable flags
+    
+    // Additional settings
+    pub afci_threshold: u16,          // AFCI arc threshold
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub volt_watt_v1: f64,           // Volt-Watt V1 setting
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub volt_watt_v2: f64,           // Volt-Watt V2 setting
+    pub volt_watt_delay: u16,        // Volt-Watt delay time
+    pub volt_watt_p2: u16,           // Volt-Watt P2 setting
+
+    // Extended system parameters from ReadInput6
+    pub grid_voltage_high_pure: u16,     // Grid voltage high pure limit
+    pub grid_voltage_low_pure: u16,      // Grid voltage low pure limit
+    pub grid_freq_high_pure: u16,        // Grid frequency high pure limit
+    pub grid_freq_low_pure: u16,         // Grid frequency low pure limit
+    pub grid_volt_high_delay: u16,       // Grid voltage high delay
+    pub grid_volt_low_delay: u16,        // Grid voltage low delay
+    pub grid_freq_high_delay: u16,       // Grid frequency high delay
+    pub grid_freq_low_delay: u16,        // Grid frequency low delay
+    pub grid_volt_recover_high: u16,     // Grid voltage recover high threshold
+    pub grid_volt_recover_low: u16,      // Grid voltage recover low threshold
+    pub grid_freq_recover_high: u16,     // Grid frequency recover high threshold
+    pub grid_freq_recover_low: u16,      // Grid frequency recover low threshold
+    pub grid_volt_recover_delay: u16,    // Grid voltage recover delay
+    pub grid_freq_recover_delay: u16,    // Grid frequency recover delay
+    pub island_detect_time: u16,         // Island detection time
+    pub pf_cmd_memory_en: u16,           // Power factor command memory enable
+    pub pf_cmd_memory_pf: u16,           // Power factor command memory value
+    pub pf_cmd_memory_p_ref: u16,        // Power factor command memory reference power
+    pub pf_cmd_memory_v_ref: u16,        // Power factor command memory reference voltage
+    pub pf_cmd_memory_q_ref: u16,        // Power factor command memory reference reactive power
 }
 
 impl ReadInputAll {
@@ -712,6 +799,112 @@ pub struct ReadInput4 {
     pub datalog: Serial,
 }
 
+// {{{ ReadInput5
+#[derive(Clone, Debug, Serialize, Nom)]
+#[nom(LittleEndian)]
+pub struct ReadInput5 {
+    // Battery configuration
+    pub bat_cell_count: u16,          // Number of battery cells in series
+    pub bat_parallel_count: u16,      // Number of battery cells in parallel
+    pub under_freq_start: u16,        // Underfrequency load reduction starting point
+    pub under_freq_end: u16,          // Underfrequency derating end point
+    pub under_freq_slope: u16,        // Underfrequency load shedding slope
+    pub max_compensation: u16,        // Maximum compensation amount for specific load
+    pub chg_power_pct: u16,          // Charging power percentage setting
+    pub dischg_power_pct: u16,       // Discharge power percentage setting
+    pub ac_charge_pct: u16,          // AC charge percentage setting
+    pub chg_priority_pct: u16,       // Charging priority percentage setting
+    pub forced_dischg_pct: u16,      // Forced discharge percentage setting
+    pub inv_power_pct: u16,          // Inverter active power percentage setting
+    
+    // AC charging parameters
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ac_chg_start_v: f64,         // AC charging starting battery voltage
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ac_chg_end_v: f64,           // AC charging cut off battery voltage
+    pub ac_chg_start_soc: u16,       // AC charging starting SOC
+    pub ac_chg_end_soc: u16,         // AC charging stops SOC
+    
+    // Battery voltage parameters
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_v: f64,              // Battery undervoltage alarm point
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_back_v: f64,         // Battery undervoltage alarm recovery point
+    pub bat_low_soc: u16,            // Battery undervoltage alarm point (SOC)
+    pub bat_low_back_soc: u16,       // Battery undervoltage alarm recovery point (SOC)
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub bat_low_utility_v: f64,      // Battery undervoltage to mains voltage point
+    pub bat_low_utility_soc: u16,    // Battery undervoltage to mains SOC
+    
+    // Additional parameters
+    pub ac_chg_curr: u16,            // AC charge current
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub ongrid_eod_v: f64,           // On-grid EOD voltage
+    
+    // SOC curve data
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub soc_volt1: f64,              // SOC curve voltage point 1
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub soc_volt2: f64,              // SOC curve voltage point 2
+    pub soc_pct1: u16,               // SOC percentage point 1
+    pub soc_pct2: u16,               // SOC percentage point 2
+    pub soc_inner_resistance: u16,    // SOC curve inner resistance
+    
+    // Power settings
+    pub max_grid_input_power: u16,    // Maximum grid input power
+    pub gen_rated_power: u16,         // Generator rated power
+    
+    // Function enable flags
+    pub function_bit_flags: u16,      // Combined function enable flags
+    
+    // Additional settings
+    pub afci_threshold: u16,          // AFCI arc threshold
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub volt_watt_v1: f64,           // Volt-Watt V1 setting
+    #[nom(Parse = "Utils::le_u16_div10")]
+    pub volt_watt_v2: f64,           // Volt-Watt V2 setting
+    pub volt_watt_delay: u16,        // Volt-Watt delay time
+    pub volt_watt_p2: u16,           // Volt-Watt P2 setting
+    
+    // Timestamp and datalog
+    #[nom(Parse = "Utils::current_time_for_nom")]
+    pub time: UnixTime,
+    #[nom(Ignore)]
+    pub datalog: Serial,
+}
+// }}}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadInput6 {
+    // Extended system parameters (registers 200-239)
+    pub grid_voltage_high_pure: u16,     // Grid voltage high pure limit
+    pub grid_voltage_low_pure: u16,      // Grid voltage low pure limit
+    pub grid_freq_high_pure: u16,        // Grid frequency high pure limit
+    pub grid_freq_low_pure: u16,         // Grid frequency low pure limit
+    pub grid_volt_high_delay: u16,       // Grid voltage high delay
+    pub grid_volt_low_delay: u16,        // Grid voltage low delay
+    pub grid_freq_high_delay: u16,       // Grid frequency high delay
+    pub grid_freq_low_delay: u16,        // Grid frequency low delay
+    pub grid_volt_recover_high: u16,     // Grid voltage recover high threshold
+    pub grid_volt_recover_low: u16,      // Grid voltage recover low threshold
+    pub grid_freq_recover_high: u16,     // Grid frequency recover high threshold
+    pub grid_freq_recover_low: u16,      // Grid frequency recover low threshold
+    pub grid_volt_recover_delay: u16,    // Grid voltage recover delay
+    pub grid_freq_recover_delay: u16,    // Grid frequency recover delay
+    pub island_detect_time: u16,         // Island detection time
+    pub pf_cmd_memory_en: u16,           // Power factor command memory enable
+    pub pf_cmd_memory_pf: u16,           // Power factor command memory value
+    pub pf_cmd_memory_p_ref: u16,        // Power factor command memory reference power
+    pub pf_cmd_memory_v_ref: u16,        // Power factor command memory reference voltage
+    pub pf_cmd_memory_q_ref: u16,        // Power factor command memory reference reactive power
+
+    // following are for influx capability only
+    #[nom(Parse = "Utils::current_time_for_nom")]
+    pub time: UnixTime,
+    #[nom(Ignore)]
+    pub datalog: Serial,
+}
+
 // {{{ ReadInputs
 #[derive(Default, Clone, Debug)]
 pub struct ReadInputs {
@@ -719,6 +912,7 @@ pub struct ReadInputs {
     read_input_2: Option<ReadInput2>,
     read_input_3: Option<ReadInput3>,
     read_input_4: Option<ReadInput4>,
+    read_input_5: Option<ReadInput5>,
 }
 
 impl ReadInputs {
@@ -734,155 +928,214 @@ impl ReadInputs {
     pub fn set_read_input_4(&mut self, i: ReadInput4) {
         self.read_input_4 = Some(i);
     }
+    pub fn set_read_input_5(&mut self, i: ReadInput5) {
+        self.read_input_5 = Some(i);
+    }
 
     pub fn to_input_all(&self) -> Option<ReadInputAll> {
-        match (
-            self.read_input_1.as_ref(),
-            self.read_input_2.as_ref(),
-            self.read_input_3.as_ref(),
-            self.read_input_4.as_ref(),
+        if let (Some(r1), Some(r2), Some(r3), Some(r4), Some(r5), Some(r6)) = (
+            &self.read_input_1,
+            &self.read_input_2,
+            &self.read_input_3,
+            &self.read_input_4,
+            &self.read_input_5,
+            &self.read_input_6,
         ) {
-            (Some(ri1), Some(ri2), Some(ri3), Some(ri4)) => {
-                let mut result = ReadInputAll {
-                    status: ri1.status,
-                    v_pv_1: ri1.v_pv_1,
-                    v_pv_2: ri1.v_pv_2,
-                    v_pv_3: ri1.v_pv_3,
-                    v_bat: ri1.v_bat,
-                    soc: ri1.soc,
-                    soh: ri1.soh,
-                    internal_fault: ri1.internal_fault,
-                    p_pv: ri1.p_pv,
-                    p_pv_1: ri1.p_pv_1,
-                    p_pv_2: ri1.p_pv_2,
-                    p_pv_3: ri1.p_pv_3,
-                    p_battery: ri1.p_battery,
-                    p_charge: ri1.p_charge,
-                    p_discharge: ri1.p_discharge,
-                    v_ac_r: ri1.v_ac_r,
-                    v_ac_s: ri1.v_ac_s,
-                    v_ac_t: ri1.v_ac_t,
-                    f_ac: ri1.f_ac,
-                    p_inv: ri1.p_inv,
-                    p_rec: ri1.p_rec,
-                    pf: ri1.pf,
-                    v_eps_r: ri1.v_eps_r,
-                    v_eps_s: ri1.v_eps_s,
-                    v_eps_t: ri1.v_eps_t,
-                    f_eps: ri1.f_eps,
-                    p_eps: ri1.p_eps,
-                    s_eps: ri1.s_eps,
-                    p_grid: ri1.p_grid,
-                    p_to_grid: ri1.p_to_grid,
-                    p_to_user: ri1.p_to_user,
-                    e_pv_day: ri1.e_pv_day,
-                    e_pv_day_1: ri1.e_pv_day_1,
-                    e_pv_day_2: ri1.e_pv_day_2,
-                    e_pv_day_3: ri1.e_pv_day_3,
-                    e_inv_day: ri1.e_inv_day,
-                    e_rec_day: ri1.e_rec_day,
-                    e_chg_day: ri1.e_chg_day,
-                    e_dischg_day: ri1.e_dischg_day,
-                    e_eps_day: ri1.e_eps_day,
-                    e_to_grid_day: ri1.e_to_grid_day,
-                    e_to_user_day: ri1.e_to_user_day,
-                    v_bus_1: ri1.v_bus_1,
-                    v_bus_2: ri1.v_bus_2,
-                    e_pv_all: ri2.e_pv_all,
-                    e_pv_all_1: ri2.e_pv_all_1,
-                    e_pv_all_2: ri2.e_pv_all_2,
-                    e_pv_all_3: ri2.e_pv_all_3,
-                    e_inv_all: ri2.e_inv_all,
-                    e_rec_all: ri2.e_rec_all,
-                    e_chg_all: ri2.e_chg_all,
-                    e_dischg_all: ri2.e_dischg_all,
-                    e_eps_all: ri2.e_eps_all,
-                    e_to_grid_all: ri2.e_to_grid_all,
-                    e_to_user_all: ri2.e_to_user_all,
-                    fault_code: ri2.fault_code,
-                    warning_code: ri2.warning_code,
-                    t_inner: ri2.t_inner,
-                    t_rad_1: ri2.t_rad_1,
-                    t_rad_2: ri2.t_rad_2,
-                    t_bat: ri2.t_bat,
-                    runtime: ri2.runtime,
-                    max_chg_curr: ri3.max_chg_curr,
-                    max_dischg_curr: ri3.max_dischg_curr,
-                    charge_volt_ref: ri3.charge_volt_ref,
-                    dischg_cut_volt: ri3.dischg_cut_volt,
-                    bat_status_0: ri3.bat_status_0,
-                    bat_status_1: ri3.bat_status_1,
-                    bat_status_2: ri3.bat_status_2,
-                    bat_status_3: ri3.bat_status_3,
-                    bat_status_4: ri3.bat_status_4,
-                    bat_status_5: ri3.bat_status_5,
-                    bat_status_6: ri3.bat_status_6,
-                    bat_status_7: ri3.bat_status_7,
-                    bat_status_8: ri3.bat_status_8,
-                    bat_status_9: ri3.bat_status_9,
-                    bat_status_inv: ri3.bat_status_inv,
-                    bat_count: ri3.bat_count,
-                    bat_capacity: ri3.bat_capacity,
-                    bat_current: ri3.bat_current,
-                    bms_event_1: ri3.bms_event_1,
-                    bms_event_2: ri3.bms_event_2,
-                    max_cell_voltage: ri3.max_cell_voltage,
-                    min_cell_voltage: ri3.min_cell_voltage,
-                    max_cell_temp: ri3.max_cell_temp,
-                    min_cell_temp: ri3.min_cell_temp,
-                    bms_fw_update_state: ri3.bms_fw_update_state,
-                    cycle_count: ri3.cycle_count,
-                    vbat_inv: ri3.vbat_inv,
-                    // Generator and bus voltage fields
-                    gen_status: 0,          // Default value since not available in input
-                    gen_power_factor: 0,    // Default value since not available in input
-                    gen_current: 0,         // Default value since not available in input
-                    gen_power_limit: 0,     // Default value since not available in input
-                    gen_connect_status: 0,  // Default value since not available in input
-                    gen_control_mode: 0,    // Default value since not available in input
-                    gen_dispatch_mode: 0,   // Default value since not available in input
-                    v_bus_half: 0.0,       // Default value since not available in input
-                    // Generator measurements from ReadInput4
-                    v_gen: ri4.v_gen,
-                    f_gen: ri4.f_gen,
-                    p_gen: ri4.p_gen,
-                    e_gen_day: ri4.e_gen_day,
-                    e_gen_all: ri4.e_gen_all,
-                    v_eps_l1: ri4.v_eps_l1,
-                    v_eps_l2: ri4.v_eps_l2,
-                    p_eps_l1: ri4.p_eps_l1,
-                    p_eps_l2: ri4.p_eps_l2,
-                    s_eps_l1: ri4.s_eps_l1,
-                    s_eps_l2: ri4.s_eps_l2,
-                    e_eps_l1_day: ri4.e_eps_l1_day,
-                    e_eps_l2_day: ri4.e_eps_l2_day,
-                    e_eps_l1_all: ri4.e_eps_l1_all,
-                    e_eps_l2_all: ri4.e_eps_l2_all,
-                    i_eps_l1: ri4.i_eps_l1,
-                    i_eps_l2: ri4.i_eps_l2,
-                    pf_eps_l1: ri4.pf_eps_l1,
-                    pf_eps_l2: ri4.pf_eps_l2,
-                    f_eps_l1: ri4.f_eps_l1,
-                    f_eps_l2: ri4.f_eps_l2,
-                    datalog: ri1.datalog,
-                    time: ri1.time.clone(),
-                };
+            let mut all = ReadInputAll {
+                status: r1.status,
+                v_pv_1: r1.v_pv_1,
+                v_pv_2: r1.v_pv_2,
+                v_pv_3: r1.v_pv_3,
+                v_bat: r1.v_bat,
+                soc: r1.soc,
+                soh: r1.soh,
+                internal_fault: r1.internal_fault,
+                p_pv: r1.p_pv,
+                p_pv_1: r1.p_pv_1,
+                p_pv_2: r1.p_pv_2,
+                p_pv_3: r1.p_pv_3,
+                p_battery: r1.p_battery,
+                p_charge: r1.p_charge,
+                p_discharge: r1.p_discharge,
+                v_ac_r: r1.v_ac_r,
+                v_ac_s: r1.v_ac_s,
+                v_ac_t: r1.v_ac_t,
+                f_ac: r1.f_ac,
+                p_inv: r1.p_inv,
+                p_rec: r1.p_rec,
+                pf: r1.pf,
+                v_eps_r: r1.v_eps_r,
+                v_eps_s: r1.v_eps_s,
+                v_eps_t: r1.v_eps_t,
+                f_eps: r1.f_eps,
+                p_eps: r1.p_eps,
+                s_eps: r1.s_eps,
+                p_grid: r1.p_grid,
+                p_to_grid: r1.p_to_grid,
+                p_to_user: r1.p_to_user,
+                e_pv_day: r1.e_pv_day,
+                e_pv_day_1: r1.e_pv_day_1,
+                e_pv_day_2: r1.e_pv_day_2,
+                e_pv_day_3: r1.e_pv_day_3,
+                e_inv_day: r1.e_inv_day,
+                e_rec_day: r1.e_rec_day,
+                e_chg_day: r1.e_chg_day,
+                e_dischg_day: r1.e_dischg_day,
+                e_eps_day: r1.e_eps_day,
+                e_to_grid_day: r1.e_to_grid_day,
+                e_to_user_day: r1.e_to_user_day,
+                v_bus_1: r1.v_bus_1,
+                v_bus_2: r1.v_bus_2,
+                e_pv_all: r2.e_pv_all,
+                e_pv_all_1: r2.e_pv_all_1,
+                e_pv_all_2: r2.e_pv_all_2,
+                e_pv_all_3: r2.e_pv_all_3,
+                e_inv_all: r2.e_inv_all,
+                e_rec_all: r2.e_rec_all,
+                e_chg_all: r2.e_chg_all,
+                e_dischg_all: r2.e_dischg_all,
+                e_eps_all: r2.e_eps_all,
+                e_to_grid_all: r2.e_to_grid_all,
+                e_to_user_all: r2.e_to_user_all,
+                fault_code: r2.fault_code,
+                warning_code: r2.warning_code,
+                t_inner: r2.t_inner,
+                t_rad_1: r2.t_rad_1,
+                t_rad_2: r2.t_rad_2,
+                t_bat: r2.t_bat,
+                runtime: r2.runtime,
+                max_chg_curr: r3.max_chg_curr,
+                max_dischg_curr: r3.max_dischg_curr,
+                charge_volt_ref: r3.charge_volt_ref,
+                dischg_cut_volt: r3.dischg_cut_volt,
+                bat_status_0: r3.bat_status_0,
+                bat_status_1: r3.bat_status_1,
+                bat_status_2: r3.bat_status_2,
+                bat_status_3: r3.bat_status_3,
+                bat_status_4: r3.bat_status_4,
+                bat_status_5: r3.bat_status_5,
+                bat_status_6: r3.bat_status_6,
+                bat_status_7: r3.bat_status_7,
+                bat_status_8: r3.bat_status_8,
+                bat_status_9: r3.bat_status_9,
+                bat_status_inv: r3.bat_status_inv,
+                bat_count: r3.bat_count,
+                bat_capacity: r3.bat_capacity,
+                bat_current: r3.bat_current,
+                bms_event_1: r3.bms_event_1,
+                bms_event_2: r3.bms_event_2,
+                max_cell_voltage: r3.max_cell_voltage,
+                min_cell_voltage: r3.min_cell_voltage,
+                max_cell_temp: r3.max_cell_temp,
+                min_cell_temp: r3.min_cell_temp,
+                bms_fw_update_state: r3.bms_fw_update_state,
+                cycle_count: r3.cycle_count,
+                vbat_inv: r3.vbat_inv,
+                gen_status: 0,          // Default value since not available in input
+                gen_power_factor: 0,    // Default value since not available in input
+                gen_current: 0,         // Default value since not available in input
+                gen_power_limit: 0,     // Default value since not available in input
+                gen_connect_status: 0,  // Default value since not available in input
+                gen_control_mode: 0,    // Default value since not available in input
+                gen_dispatch_mode: 0,   // Default value since not available in input
+                v_bus_half: 0.0,       // Default value since not available in input
+                v_gen: r4.v_gen,
+                f_gen: r4.f_gen,
+                p_gen: r4.p_gen,
+                e_gen_day: r4.e_gen_day,
+                e_gen_all: r4.e_gen_all,
+                v_eps_l1: r4.v_eps_l1,
+                v_eps_l2: r4.v_eps_l2,
+                p_eps_l1: r4.p_eps_l1,
+                p_eps_l2: r4.p_eps_l2,
+                s_eps_l1: r4.s_eps_l1,
+                s_eps_l2: r4.s_eps_l2,
+                e_eps_l1_day: r4.e_eps_l1_day,
+                e_eps_l2_day: r4.e_eps_l2_day,
+                e_eps_l1_all: r4.e_eps_l1_all,
+                e_eps_l2_all: r4.e_eps_l2_all,
+                i_eps_l1: r4.i_eps_l1,
+                i_eps_l2: r4.i_eps_l2,
+                pf_eps_l1: r4.pf_eps_l1,
+                pf_eps_l2: r4.pf_eps_l2,
+                f_eps_l1: r4.f_eps_l1,
+                f_eps_l2: r4.f_eps_l2,
+                datalog: r1.datalog,
+                time: r1.time.clone(),
+                bat_cell_count: r5.bat_cell_count,
+                bat_parallel_count: r5.bat_parallel_count,
+                under_freq_start: r5.under_freq_start,
+                under_freq_end: r5.under_freq_end,
+                under_freq_slope: r5.under_freq_slope,
+                max_compensation: r5.max_compensation,
+                chg_power_pct: r5.chg_power_pct,
+                dischg_power_pct: r5.dischg_power_pct,
+                ac_charge_pct: r5.ac_charge_pct,
+                chg_priority_pct: r5.chg_priority_pct,
+                forced_dischg_pct: r5.forced_dischg_pct,
+                inv_power_pct: r5.inv_power_pct,
+                ac_chg_start_v: r5.ac_chg_start_v,
+                ac_chg_end_v: r5.ac_chg_end_v,
+                ac_chg_start_soc: r5.ac_chg_start_soc,
+                ac_chg_end_soc: r5.ac_chg_end_soc,
+                bat_low_v: r5.bat_low_v,
+                bat_low_back_v: r5.bat_low_back_v,
+                bat_low_soc: r5.bat_low_soc,
+                bat_low_back_soc: r5.bat_low_back_soc,
+                bat_low_utility_v: r5.bat_low_utility_v,
+                bat_low_utility_soc: r5.bat_low_utility_soc,
+                ac_chg_curr: r5.ac_chg_curr,
+                ongrid_eod_v: r5.ongrid_eod_v,
+                soc_volt1: r5.soc_volt1,
+                soc_volt2: r5.soc_volt2,
+                soc_pct1: r5.soc_pct1,
+                soc_pct2: r5.soc_pct2,
+                soc_inner_resistance: r5.soc_inner_resistance,
+                max_grid_input_power: r5.max_grid_input_power,
+                gen_rated_power: r5.gen_rated_power,
+                function_bit_flags: r5.function_bit_flags,
+                afci_threshold: r5.afci_threshold,
+                volt_watt_v1: r5.volt_watt_v1,
+                volt_watt_v2: r5.volt_watt_v2,
+                volt_watt_delay: r5.volt_watt_delay,
+                volt_watt_p2: r5.volt_watt_p2,
+                grid_voltage_high_pure: r6.grid_voltage_high_pure,
+                grid_voltage_low_pure: r6.grid_voltage_low_pure,
+                grid_freq_high_pure: r6.grid_freq_high_pure,
+                grid_freq_low_pure: r6.grid_freq_low_pure,
+                grid_volt_high_delay: r6.grid_volt_high_delay,
+                grid_volt_low_delay: r6.grid_volt_low_delay,
+                grid_freq_high_delay: r6.grid_freq_high_delay,
+                grid_freq_low_delay: r6.grid_freq_low_delay,
+                grid_volt_recover_high: r6.grid_volt_recover_high,
+                grid_volt_recover_low: r6.grid_volt_recover_low,
+                grid_freq_recover_high: r6.grid_freq_recover_high,
+                grid_freq_recover_low: r6.grid_freq_recover_low,
+                grid_volt_recover_delay: r6.grid_volt_recover_delay,
+                grid_freq_recover_delay: r6.grid_freq_recover_delay,
+                island_detect_time: r6.island_detect_time,
+                pf_cmd_memory_en: r6.pf_cmd_memory_en,
+                pf_cmd_memory_pf: r6.pf_cmd_memory_pf,
+                pf_cmd_memory_p_ref: r6.pf_cmd_memory_p_ref,
+                pf_cmd_memory_v_ref: r6.pf_cmd_memory_v_ref,
+                pf_cmd_memory_q_ref: r6.pf_cmd_memory_q_ref,
+            };
 
-                // Calculate derived values
-                if let Err(e) = result.calculate_derived_values() {
-                    error!("Failed to calculate derived values: {}", e);
-                    return None;
-                }
-
-                // Validate the result
-                if let Err(e) = result.validate() {
-                    error!("Validation failed for ReadInputAll: {}", e);
-                    return None;
-                }
-
-                Some(result)
+            // Calculate derived values
+            if let Err(e) = all.calculate_derived_values() {
+                error!("Failed to calculate derived values: {}", e);
+                return None;
             }
-            _ => None,
+
+            // Validate the result
+            if let Err(e) = all.validate() {
+                error!("Validation failed for ReadInputAll: {}", e);
+                return None;
+            }
+
+            Some(all)
+        } else {
+            None
         }
     }
 }
@@ -1160,14 +1413,14 @@ impl TranslatedData {
     }
 
     pub fn read_input(&self) -> Result<ReadInput> {
-        // note len() is of Vec<u8>, so not register count
         match (self.register, self.values.len()) {
             (0, 254) => Ok(ReadInput::ReadInputAll(Box::new(self.read_input_all()?))),
-            // (127, 254) has been seen but containing all zeroes, not sure what they are
             (0, 80) => Ok(ReadInput::ReadInput1(self.read_input1()?)),
             (40, 80) => Ok(ReadInput::ReadInput2(self.read_input2()?)),
             (80, 80) => Ok(ReadInput::ReadInput3(self.read_input3()?)),
             (120, 80) => Ok(ReadInput::ReadInput4(self.read_input4()?)),
+            (160, 80) => Ok(ReadInput::ReadInput5(self.read_input5()?)),
+            (200, 80) => Ok(ReadInput::ReadInput6(self.read_input6()?)),
             (r1, r2) => bail!("unhandled ReadInput register={} len={}", r1, r2),
         }
     }
@@ -1244,6 +1497,72 @@ impl TranslatedData {
             }
             Err(_) => Err(anyhow!("meh")),
         }
+    }
+
+    fn read_input5(&self) -> Result<ReadInput5> {
+        match ReadInput5::parse(&self.values) {
+            Ok((_, mut r)) => {
+                r.datalog = self.datalog;
+                Ok(r)
+            }
+            Err(_) => Err(anyhow!("Failed to parse ReadInput5")),
+        }
+    }
+
+    fn read_input6(&self) -> Result<ReadInput6> {
+        let mut input = ReadInput6 {
+            grid_voltage_high_pure: 0,
+            grid_voltage_low_pure: 0,
+            grid_freq_high_pure: 0,
+            grid_freq_low_pure: 0,
+            grid_volt_high_delay: 0,
+            grid_volt_low_delay: 0,
+            grid_freq_high_delay: 0,
+            grid_freq_low_delay: 0,
+            grid_volt_recover_high: 0,
+            grid_volt_recover_low: 0,
+            grid_freq_recover_high: 0,
+            grid_freq_recover_low: 0,
+            grid_volt_recover_delay: 0,
+            grid_freq_recover_delay: 0,
+            island_detect_time: 0,
+            pf_cmd_memory_en: 0,
+            pf_cmd_memory_pf: 0,
+            pf_cmd_memory_p_ref: 0,
+            pf_cmd_memory_v_ref: 0,
+            pf_cmd_memory_q_ref: 0,
+            time: UnixTime::now(),
+            datalog: self.datalog,
+        };
+
+        let pairs = self.pairs();
+        for (i, (_, value)) in pairs.iter().enumerate() {
+            match i {
+                0 => input.grid_voltage_high_pure = *value,
+                1 => input.grid_voltage_low_pure = *value,
+                2 => input.grid_freq_high_pure = *value,
+                3 => input.grid_freq_low_pure = *value,
+                4 => input.grid_volt_high_delay = *value,
+                5 => input.grid_volt_low_delay = *value,
+                6 => input.grid_freq_high_delay = *value,
+                7 => input.grid_freq_low_delay = *value,
+                8 => input.grid_volt_recover_high = *value,
+                9 => input.grid_volt_recover_low = *value,
+                10 => input.grid_freq_recover_high = *value,
+                11 => input.grid_freq_recover_low = *value,
+                12 => input.grid_volt_recover_delay = *value,
+                13 => input.grid_freq_recover_delay = *value,
+                14 => input.island_detect_time = *value,
+                15 => input.pf_cmd_memory_en = *value,
+                16 => input.pf_cmd_memory_pf = *value,
+                17 => input.pf_cmd_memory_p_ref = *value,
+                18 => input.pf_cmd_memory_v_ref = *value,
+                19 => input.pf_cmd_memory_q_ref = *value,
+                _ => {}
+            }
+        }
+
+        Ok(input)
     }
 
     fn decode(input: &[u8]) -> Result<Self> {

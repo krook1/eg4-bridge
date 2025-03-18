@@ -56,15 +56,21 @@ impl TimeSync {
                 chrono::Duration::seconds(chrono::Local::now().offset().local_minus_utc() as i64);
             let now = Utils::utc() + offset_in_sec;
 
+            let time_diff = dt - now;
             debug!(
                 "inverter {} time difference is {}",
                 self.inverter.datalog(),
-                dt - now
+                time_diff
             );
 
-            let limit = chrono::Duration::seconds(120);
+            // Maximum allowed time difference (10 minutes)
+            let max_limit = chrono::Duration::seconds(600);
+            // Minimum time difference to trigger update (30 seconds)
+            let min_limit = chrono::Duration::seconds(30);
 
-            if dt - now > limit || now - dt > limit {
+            // Only update if time difference is between 30 seconds and 10 minutes
+            if (time_diff > min_limit && time_diff <= max_limit) || 
+               (time_diff < -min_limit && time_diff >= -max_limit) {
                 let packet = self.set_time_packet(now);
 
                 if self
@@ -81,6 +87,11 @@ impl TimeSync {
                 } else {
                     warn!("time set didn't get confirmation reply!");
                 }
+            } else if time_diff.abs() > max_limit {
+                warn!(
+                    "Time difference of {} exceeds maximum allowed adjustment of 10 minutes. Manual intervention may be required.",
+                    time_diff
+                );
             }
         }
 

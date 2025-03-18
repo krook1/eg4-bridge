@@ -3,7 +3,7 @@ use crate::prelude::*;
 pub mod commands;
 
 use std::sync::{Arc, Mutex};
-use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1};
+use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput5};
 use lxp::inverter;
 use serde_json::json;
 
@@ -210,57 +210,11 @@ impl Coordinator {
 
         // Create a packet from the command for stats tracking
         let packet = match &command {
-            ReadInputs(_, _) => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::ReadInput,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-            ReadInput(_, _, _) => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::ReadInput,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-            ReadHold(_, _, _) => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::ReadHold,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-            ReadParam(_, _) => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::ReadHold,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-            WriteParam(_, _, _) => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::WriteSingle,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-            _ => Packet::TranslatedData(TranslatedData {
-                datalog: Serial::default(),
-                device_function: DeviceFunction::WriteSingle,
-                inverter: Serial::default(),
-                register: 0,
-                values: vec![],
-            }),
-        };
-
-        self.increment_packets_sent(&packet);
-
-        match command {
             ReadInputs(inverter, 1) => self.read_inputs(inverter, 0_u16, 40).await,
             ReadInputs(inverter, 2) => self.read_inputs(inverter, 40_u16, 40).await,
             ReadInputs(inverter, 3) => self.read_inputs(inverter, 80_u16, 40).await,
             ReadInputs(inverter, 4) => self.read_inputs(inverter, 120_u16, 40).await,
+            ReadInputs(inverter, 5) => self.read_inputs(inverter, 160_u16, 40).await,
             ReadInputs(_, _) => unreachable!(),
             ReadInput(inverter, register, count) => {
                 self.read_inputs(inverter, register, count).await
@@ -562,6 +516,15 @@ impl Coordinator {
                                 }
                             }
                         }
+                        ReadInput::ReadInput5(input_5) => {
+                            debug!("Processing ReadInput5");
+                            if let Err(e) = self.publish_raw_input_messages_5(&input_5, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                            }
+                        }
                         _ => {
                             debug!("Unhandled ReadInput variant");
                         }
@@ -739,10 +702,10 @@ impl Coordinator {
             return Ok(());
         }
 
-        info!("Reading holding registers for inverter {}", datalog);
+        info!("Reading all registers for inverter {}", datalog);
 
-        // Add delay between read_hold requests to prevent overwhelming the inverter
-        const DELAY_MS: u64 = 1; // 1ms delay between requests
+        // Add delay between read requests to prevent overwhelming the inverter
+        const DELAY_MS: u64 = 100; // 100ms delay between requests
 
         // Create a packet for stats tracking
         let packet = Packet::TranslatedData(TranslatedData {
@@ -753,61 +716,49 @@ impl Coordinator {
             values: vec![],
         });
 
-        // We can only read holding registers in blocks of 40. Provisionally,
-        // there are 6 pages of 40 values.
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 0_u16, 40).await?;
-//        tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
-        
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 40_u16, 40).await?;
-//        tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
-        
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 80_u16, 40).await?;
-//        tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
-        
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 120_u16, 40).await?;
-//        tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
-        
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 160_u16, 40).await?;
-//        tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
-        
-        self.increment_packets_sent(&packet);
-        self.read_hold(inverter.clone(), 200_u16, 40).await?;
+        // Read all holding register blocks
+        for start_register in (0..=240).step_by(40) {
+            self.increment_packets_sent(&packet);
+            self.read_hold(inverter.clone(), start_register as u16, 40).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
+        }
 
-        // Also send any special interpretive topics which are derived from
-        // the holding registers.
-        //
-        // FIXME: this is a further 12 round-trips to the inverter to read values
-        // we have already taken, just above. We should be able to do better!
+        // Read all input register blocks
+        for start_register in (0..=200).step_by(40) {
+            self.increment_packets_sent(&packet);
+            self.read_inputs(inverter.clone(), start_register as u16, 40).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
+        }
+
+        // Read time registers with appropriate delays
         for num in &[1, 2, 3] {
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::AcCharge(*num),
-            )
-            .await?;
+            ).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
+
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::ChargePriority(*num),
-            )
-            .await?;
+            ).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
+
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::ForcedDischarge(*num),
-            )
-            .await?;
+            ).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
+
             self.increment_packets_sent(&packet);
             self.read_time_register(
                 inverter.clone(),
                 commands::time_register_ops::Action::AcFirst(*num),
-            )
-            .await?;
+            ).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(DELAY_MS)).await;
         }
 
         Ok(())
@@ -892,6 +843,23 @@ impl Coordinator {
         // Publish raw values
         let topic = format!("{}/inputs/1", inverter.datalog);
         if let Err(e) = self.publish_message(topic, serde_json::to_string(input_1)?, false).await {
+            error!("Failed to publish raw input messages: {}", e);
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages_5(&self, input_5: &ReadInput5, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/5", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_5)?, false).await {
             error!("Failed to publish raw input messages: {}", e);
             if let Ok(mut stats) = self.stats.lock() {
                 stats.mqtt_errors += 1;
