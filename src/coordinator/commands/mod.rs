@@ -8,6 +8,7 @@ pub mod update_hold;
 pub mod write_param;
 pub mod validation;
 pub mod parse_hold;
+pub mod parse_input;
 
 // Re-export common validation functions
 pub use validation::*;

@@ -2,6 +2,7 @@ use crate::prelude::*;
 
 pub mod commands;
 use commands::parse_hold;
+use commands::parse_input;
 
 use std::sync::{Arc, Mutex};
 use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput2, ReadInput3, ReadInput4, ReadInput5, ReadInput6};
@@ -518,70 +519,28 @@ impl Coordinator {
             match td.device_function {
                 DeviceFunction::ReadInput => {
                     debug!("Processing ReadInput packet");
-                    let read_input = td.read_input()?;
-                    match read_input {
-                        ReadInput::ReadInputAll(input_all) => {
-                            debug!("Processing ReadInputAll");
-                            if let Err(e) = self.publish_raw_input_messages(&input_all, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
+                    let register = td.register();
+                    let pairs = td.pairs();
+                    
+                    // Log all register values
+                    info!("Input Register Values:");
+                    for (reg, value) in &pairs {
+                        // Cache the register value
+                        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
+                            error!("Failed to cache register {}: {}", reg, e);
+                            if let Ok(mut stats) = self.stats.lock() {
+                                stats.register_cache_errors += 1;
                             }
                         }
-                        ReadInput::ReadInput1(input_1) => {
-                            debug!("Processing ReadInput1");
-                            if let Err(e) = self.publish_raw_input_messages_1(&input_1, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
-                        ReadInput::ReadInput2(input_2) => {
-                            debug!("Processing ReadInput2");
-                            if let Err(e) = self.publish_raw_input_messages_2(&input_2, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
-                        ReadInput::ReadInput3(input_3) => {
-                            debug!("Processing ReadInput3");
-                            if let Err(e) = self.publish_raw_input_messages_3(&input_3, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
-                        ReadInput::ReadInput4(input_4) => {
-                            debug!("Processing ReadInput4");
-                            if let Err(e) = self.publish_raw_input_messages_4(&input_4, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
-                        ReadInput::ReadInput5(input_5) => {
-                            debug!("Processing ReadInput5");
-                            if let Err(e) = self.publish_raw_input_messages_5(&input_5, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
-                        }
-                        ReadInput::ReadInput6(input_6) => {
-                            debug!("Processing ReadInput6");
-                            if let Err(e) = self.publish_raw_input_messages_6(&input_6, inverter).await {
-                                error!("Failed to publish raw input messages: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
-                                    stats.mqtt_errors += 1;
-                                }
-                            }
+                        
+                        // Parse and log the register value using the new module
+                        info!("  {}", parse_input::parse_input_register(*reg, *value));
+                    }
+                    
+                    if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
+                        error!("Failed to publish input message: {}", e);
+                        if let Ok(mut stats) = self.stats.lock() {
+                            stats.mqtt_errors += 1;
                         }
                     }
                 }
@@ -841,130 +800,19 @@ impl Coordinator {
         bail!("send(to_mqtt) failed after retries - channel closed?");
     }
 
-    async fn publish_raw_input_messages(&self, input_all: &ReadInputAll, inverter: &config::Inverter) -> Result<()> {
+    async fn publish_input_message(&self, register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
         if !self.config.mqtt().enabled() {
             return Ok(());
         }
 
         // Publish raw values
-        let topic = format!("{}/inputs/all", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_all)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_1(&self, input_1: &ReadInput1, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/1", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_1)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_2(&self, input_2: &ReadInput2, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/2", inverter.datalog);
-        debug!("Publishing ReadInput2: bat_brand={}, bat_com_type={}", input_2.bat_brand, input_2.bat_com_type);
-        match serde_json::to_string(input_2) {
-            Ok(json) => {
-                if let Err(e) = self.publish_message(topic, json, false).await {
-                    error!("Failed to publish raw input messages: {}", e);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.mqtt_errors += 1;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to serialize ReadInput2: {}", e);
+        for (reg, value) in pairs {
+            let topic = format!("{}/inputs/{}", inverter.datalog, reg);
+            if let Err(e) = self.publish_message(topic, value.to_string(), false).await {
+                error!("Failed to publish input message: {}", e);
                 if let Ok(mut stats) = self.stats.lock() {
                     stats.mqtt_errors += 1;
                 }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_3(&self, input_3: &ReadInput3, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/3", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_3)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_4(&self, input_4: &ReadInput4, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/4", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_4)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_5(&self, input_5: &ReadInput5, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/5", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_5)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_raw_input_messages_6(&self, input_6: &ReadInput6, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        let topic = format!("{}/inputs/6", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_6)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
             }
         }
 
