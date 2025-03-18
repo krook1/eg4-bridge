@@ -5,7 +5,6 @@ pub mod commands;
 use std::sync::{Arc, Mutex};
 use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput2, ReadInput3, ReadInput4, ReadInput5, ReadInput6};
 use lxp::inverter;
-use serde_json::json;
 
 // Configurable timeouts
 const WRITE_TIMEOUT_MS: u64 = 5000;  // 5 seconds
@@ -570,14 +569,78 @@ impl Coordinator {
                     debug!("Processing ReadHold packet");
                     let register = td.register();
                     let pairs = td.pairs();
+                    
+                    // Log all register values
+                    info!("Hold Register Values:");
                     for (reg, value) in &pairs {
+                        // Cache the register value
                         if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
                             error!("Failed to cache register {}: {}", reg, e);
                             if let Ok(mut stats) = self.stats.lock() {
                                 stats.register_cache_errors += 1;
                             }
                         }
+                        
+                        // Log register value with description if known
+                        match *reg {
+                            21 => {
+                                let mut flags = Vec::new();
+                                if value & (1 << 0) != 0 { flags.push("AC Charge Enabled"); }
+                                if value & (1 << 1) != 0 { flags.push("Charge Priority Enabled"); }
+                                if value & (1 << 2) != 0 { flags.push("Forced Discharge Enabled"); }
+                                if value & (1 << 3) != 0 { flags.push("AC First Enabled"); }
+                                info!("  Register {:3} (System Flags): {:#06x}", reg, value);
+                                let flag_str = if flags.is_empty() { 
+                                    "None".to_string() 
+                                } else { 
+                                    flags.join(", ") 
+                                };
+                                info!("    Active flags: {}", flag_str);
+                            },
+                            64 => info!("  Register {:3} (System Charge Rate): {}% - Overall system charging power limit", reg, value),
+                            65 => info!("  Register {:3} (System Discharge Rate): {}% - Overall system discharging power limit", reg, value),
+                            66 => info!("  Register {:3} (Grid Charge Power Rate): {}% - Maximum power allowed for grid charging", reg, value),
+                            67 => info!("  Register {:3} (AC Charge SOC Limit): {}% - Battery level at which AC charging stops", reg, value),
+                            74 => info!("  Register {:3} (Charge Priority Rate): {}% - Power limit during charge priority mode", reg, value),
+                            75 => info!("  Register {:3} (Charge Priority SOC): {}% - Target SOC for charge priority mode", reg, value),
+                            83 => info!("  Register {:3} (Forced Discharge SOC): {}% - Target SOC for forced discharge mode", reg, value),
+                            105 => info!("  Register {:3} (Discharge cut-off SOC): {}% - Minimum battery level for normal operation", reg, value),
+                            125 => info!("  Register {:3} (EPS Discharge cut-off): {}% - Minimum battery level in EPS mode", reg, value),
+                            160 => info!("  Register {:3} (AC Charge Start SOC): {}% - Battery level to begin AC charging", reg, value),
+                            161 => info!("  Register {:3} (AC Charge End SOC): {}% - Battery level to stop AC charging", reg, value),
+                            110 => info!("  Register {:3} (Battery Capacity): {} Ah - Rated capacity of the battery", reg, value),
+                            111 => info!("  Register {:3} (Battery Voltage): {} V - Current battery voltage", reg, value),
+                            112 => info!("  Register {:3} (Battery Current): {} A - Current battery current", reg, value),
+                            113 => info!("  Register {:3} (Battery Power): {} W - Current battery power", reg, value),
+                            114 => info!("  Register {:3} (Battery Temperature): {} °C - Current battery temperature", reg, value),
+                            115 => info!("  Register {:3} (Battery SOC): {}% - Current state of charge", reg, value),
+                            116 => info!("  Register {:3} (Battery SOH): {}% - Current state of health", reg, value),
+                            117 => info!("  Register {:3} (Battery Cycles): {} - Total battery charge/discharge cycles", reg, value),
+                            // Grid and Power Settings
+                            68 => info!("  Register {:3} (Grid Power Limit): {} W - Maximum grid power limit", reg, value),
+                            69 => info!("  Register {:3} (Grid Connected Power): {} W - Current grid connected power", reg, value),
+                            70 => info!("  Register {:3} (Grid Frequency): {:.2} Hz - Current grid frequency", reg, (*value as f64) / 100.0),
+                            71 => info!("  Register {:3} (Grid Voltage): {:.1} V - Current grid voltage", reg, (*value as f64) / 10.0),
+                            // Time-based Settings
+                            84 => info!("  Register {:3} (Time Enable Flags): {:#06x} - Time-based function enable flags", reg, value),
+                            85 => info!("  Register {:3} (Current Time): Hour={}, Minute={} - System time", reg, value >> 8, value & 0xFF),
+                            // System Status
+                            200 => {
+                                let status = match value {
+                                    0 => "Standby",
+                                    1 => "Self Test",
+                                    2 => "Normal",
+                                    3 => "Alarm",
+                                    4 => "Fault",
+                                    _ => "Unknown",
+                                };
+                                info!("  Register {:3} (System Status): {} ({})", reg, value, status)
+                            },
+                            // For unknown registers, show raw value
+                            _ => info!("  Register {:3}: {} (raw value)", reg, value),
+                        }
                     }
+                    
                     if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
                         error!("Failed to publish hold message: {}", e);
                         if let Ok(mut stats) = self.stats.lock() {
@@ -892,10 +955,21 @@ impl Coordinator {
 
         // Publish raw values
         let topic = format!("{}/inputs/2", inverter.datalog);
-        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_2)?, false).await {
-            error!("Failed to publish raw input messages: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.mqtt_errors += 1;
+        debug!("Publishing ReadInput2: bat_brand={}, bat_com_type={}", input_2.bat_brand, input_2.bat_com_type);
+        match serde_json::to_string(input_2) {
+            Ok(json) => {
+                if let Err(e) = self.publish_message(topic, json, false).await {
+                    error!("Failed to publish raw input messages: {}", e);
+                    if let Ok(mut stats) = self.stats.lock() {
+                        stats.mqtt_errors += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to serialize ReadInput2: {}", e);
+                if let Ok(mut stats) = self.stats.lock() {
+                    stats.mqtt_errors += 1;
+                }
             }
         }
 
@@ -970,7 +1044,7 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn publish_hold_message(&self, register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
+    async fn publish_hold_message(&self, _register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
         if !self.config.mqtt().enabled() {
             return Ok(());
         }

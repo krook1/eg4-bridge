@@ -1479,7 +1479,7 @@ impl TranslatedData {
                 r.datalog = self.datalog;
                 Ok(r)
             }
-            Err(_) => Err(anyhow!("meh")),
+            Err(e) => Err(anyhow!("Failed to parse ReadInput2: {:?}", e)),
         }
     }
 
