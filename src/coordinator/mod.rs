@@ -8,7 +8,6 @@ use lxp::inverter;
 
 // Sleep durations - keeping only the ones actively used
 const RETRY_DELAY_MS: u64 = 1000;    // 1 second
-const DELAY_MS: u64 = 100; // 100ms delay between requests
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ChannelData {
@@ -701,16 +700,6 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn cache_register(&self, register: lxp::packet::Register, value: u16) -> Result<()> {
-        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register as u16, value)) {
-            error!("Failed to cache register {}: {}", register as u16, e);
-            if let Ok(mut stats) = self.stats.lock() {
-                stats.register_cache_errors += 1;
-            }
-        }
-        Ok(())
-    }
-
     async fn inverter_receiver(&self) -> Result<()> {
         let mut receiver = self.channels.from_inverter.subscribe();
         let mut buffer_size = 0;
@@ -906,26 +895,6 @@ impl Coordinator {
             stats.mqtt_errors += 1;
         }
         bail!("send(to_mqtt) failed after retries - channel closed?");
-    }
-
-    // Helper method to get all input registers
-    async fn get_all_inputs(&self) -> Result<std::collections::HashMap<u16, u16>> {
-        // Implementation would go here
-        Ok(std::collections::HashMap::new())
-    }
-
-    // Renamed from maybe_send_read_holds for clarity
-    async fn check_related_holds(
-        &self,
-        register_map: std::collections::HashMap<u16, u16>,
-        inverter: config::Inverter,
-    ) -> Result<()> {
-        // Original implementation remains the same
-        if register_map.contains_key(&68) ^ register_map.contains_key(&69) {
-            self.read_hold(inverter.clone(), 84_u16, 2).await?;
-        }
-        // ... rest of the implementation ...
-        Ok(())
     }
 
     async fn publish_raw_input_messages(&self, input_all: &ReadInputAll, inverter: &config::Inverter) -> Result<()> {
