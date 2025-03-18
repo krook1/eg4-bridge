@@ -31,6 +31,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 value)
         }
         7 => format!("Firmware Version Code: {}", value),
+        8 => format!("Backup Firmware Version Code: {}", value),
         9 => format!("Slave CPU Version (Redundant): {} (0-255)", value),
         10 => format!("Control CPU Version: {} (0-255)", value),
         11 => {
@@ -70,6 +71,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         }
         15 => format!("Communication Address: {} (0-150)", value),
         16 => format!("Language: {} (0=English, 1=German)", value),
+        19 => format!("Version: {}", value),
         20 => {
             let mode = match value {
                 0 => "No PV",
