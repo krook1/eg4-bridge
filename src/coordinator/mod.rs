@@ -3,7 +3,7 @@ use crate::prelude::*;
 pub mod commands;
 
 use std::sync::{Arc, Mutex};
-use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput5};
+use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput2, ReadInput3, ReadInput4, ReadInput5, ReadInput6};
 use lxp::inverter;
 use serde_json::json;
 
@@ -208,107 +208,110 @@ impl Coordinator {
         use lxp::packet::{Register, RegisterBit};
         use Command::*;
 
-        // Create a packet from the command for stats tracking
-        let packet = match &command {
-            ReadInputs(inverter, 1) => self.read_inputs(inverter, 0_u16, 40).await,
-            ReadInputs(inverter, 2) => self.read_inputs(inverter, 40_u16, 40).await,
-            ReadInputs(inverter, 3) => self.read_inputs(inverter, 80_u16, 40).await,
-            ReadInputs(inverter, 4) => self.read_inputs(inverter, 120_u16, 40).await,
-            ReadInputs(inverter, 5) => self.read_inputs(inverter, 160_u16, 40).await,
-            ReadInputs(_, _) => unreachable!(),
+        match command {
+            ReadInputs(inverter, 1) => self.read_inputs(inverter.clone(), 0_u16, 40).await?,
+            ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, 40).await?,
+            ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, 40).await?,
+            ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, 40).await?,
+            ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, 40).await?,
+            ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, 40).await?,
+            ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
             ReadInput(inverter, register, count) => {
-                self.read_inputs(inverter, register, count).await
+                self.read_inputs(inverter.clone(), register, count).await?
             }
-            ReadHold(inverter, register, count) => self.read_hold(inverter, register, count).await,
-            ReadParam(inverter, register) => self.read_param(inverter, register).await,
+            ReadHold(inverter, register, count) => {
+                self.read_hold(inverter.clone(), register, count).await?
+            }
+            ReadParam(inverter, register) => {
+                self.read_param(inverter.clone(), register).await?
+            }
             ReadAcChargeTime(inverter, num) => {
-                self.read_time_register(inverter, Action::AcCharge(num))
-                    .await
+                self.read_time_register(inverter.clone(), Action::AcCharge(num))
+                    .await?
             }
             ReadAcFirstTime(inverter, num) => {
-                self.read_time_register(inverter, Action::AcFirst(num))
-                    .await
+                self.read_time_register(inverter.clone(), Action::AcFirst(num))
+                    .await?
             }
             ReadChargePriorityTime(inverter, num) => {
-                self.read_time_register(inverter, Action::ChargePriority(num))
-                    .await
+                self.read_time_register(inverter.clone(), Action::ChargePriority(num))
+                    .await?
             }
             ReadForcedDischargeTime(inverter, num) => {
-                self.read_time_register(inverter, Action::ForcedDischarge(num))
-                    .await
+                self.read_time_register(inverter.clone(), Action::ForcedDischarge(num))
+                    .await?
             }
-            SetHold(inverter, register, value) => self.set_hold(inverter, register, value).await,
+            SetHold(inverter, register, value) => {
+                self.set_hold(inverter.clone(), register, value).await?
+            }
             WriteParam(inverter, register, value) => {
-                self.write_param(inverter, register, value).await
+                self.write_param(inverter.clone(), register, value).await?
             }
             SetAcChargeTime(inverter, num, values) => {
-                self.set_time_register(inverter, Action::AcCharge(num), values)
-                    .await
+                self.set_time_register(inverter.clone(), Action::AcCharge(num), values)
+                    .await?
             }
             SetAcFirstTime(inverter, num, values) => {
-                self.set_time_register(inverter, Action::AcFirst(num), values)
-                    .await
+                self.set_time_register(inverter.clone(), Action::AcFirst(num), values)
+                    .await?
             }
             SetChargePriorityTime(inverter, num, values) => {
-                self.set_time_register(inverter, Action::ChargePriority(num), values)
-                    .await
+                self.set_time_register(inverter.clone(), Action::ChargePriority(num), values)
+                    .await?
             }
             SetForcedDischargeTime(inverter, num, values) => {
-                self.set_time_register(inverter, Action::ForcedDischarge(num), values)
-                    .await
+                self.set_time_register(inverter.clone(), Action::ForcedDischarge(num), values)
+                    .await?
             }
             AcCharge(inverter, enable) => {
                 self.update_hold(
-                    inverter,
+                    inverter.clone(),
                     Register::Register21,
                     RegisterBit::AcChargeEnable,
                     enable,
                 )
-                .await
+                .await?
             }
             ChargePriority(inverter, enable) => {
                 self.update_hold(
-                    inverter,
+                    inverter.clone(),
                     Register::Register21,
                     RegisterBit::ChargePriorityEnable,
                     enable,
                 )
-                .await
+                .await?
             }
-
             ForcedDischarge(inverter, enable) => {
                 self.update_hold(
-                    inverter,
+                    inverter.clone(),
                     Register::Register21,
                     RegisterBit::ForcedDischargeEnable,
                     enable,
                 )
-                .await
+                .await?
             }
             ChargeRate(inverter, pct) => {
-                self.set_hold(inverter, Register::ChargePowerPercentCmd, pct)
-                    .await
+                self.set_hold(inverter.clone(), Register::ChargePowerPercentCmd, pct)
+                    .await?
             }
             DischargeRate(inverter, pct) => {
-                self.set_hold(inverter, Register::DischgPowerPercentCmd, pct)
-                    .await
+                self.set_hold(inverter.clone(), Register::DischgPowerPercentCmd, pct)
+                    .await?
             }
-
             AcChargeRate(inverter, pct) => {
-                self.set_hold(inverter, Register::AcChargePowerCmd, pct)
-                    .await
+                self.set_hold(inverter.clone(), Register::AcChargePowerCmd, pct)
+                    .await?
             }
-
             AcChargeSocLimit(inverter, pct) => {
-                self.set_hold(inverter, Register::AcChargeSocLimit, pct)
-                    .await
+                self.set_hold(inverter.clone(), Register::AcChargeSocLimit, pct)
+                    .await?
             }
-
             DischargeCutoffSocLimit(inverter, pct) => {
-                self.set_hold(inverter, Register::DischgCutOffSocEod, pct)
-                    .await
+                self.set_hold(inverter.clone(), Register::DischgCutOffSocEod, pct)
+                    .await?
             }
         }
+        Ok(())
     }
 
     async fn read_inputs<U>(
@@ -516,6 +519,33 @@ impl Coordinator {
                                 }
                             }
                         }
+                        ReadInput::ReadInput2(input_2) => {
+                            debug!("Processing ReadInput2");
+                            if let Err(e) = self.publish_raw_input_messages_2(&input_2, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                            }
+                        }
+                        ReadInput::ReadInput3(input_3) => {
+                            debug!("Processing ReadInput3");
+                            if let Err(e) = self.publish_raw_input_messages_3(&input_3, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                            }
+                        }
+                        ReadInput::ReadInput4(input_4) => {
+                            debug!("Processing ReadInput4");
+                            if let Err(e) = self.publish_raw_input_messages_4(&input_4, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                            }
+                        }
                         ReadInput::ReadInput5(input_5) => {
                             debug!("Processing ReadInput5");
                             if let Err(e) = self.publish_raw_input_messages_5(&input_5, inverter).await {
@@ -525,8 +555,14 @@ impl Coordinator {
                                 }
                             }
                         }
-                        _ => {
-                            debug!("Unhandled ReadInput variant");
+                        ReadInput::ReadInput6(input_6) => {
+                            debug!("Processing ReadInput6");
+                            if let Err(e) = self.publish_raw_input_messages_6(&input_6, inverter).await {
+                                error!("Failed to publish raw input messages: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -679,9 +715,6 @@ impl Coordinator {
                 inverter::ChannelData::Shutdown => {
                     info!("Received shutdown signal");
                     break;
-                }
-                _ => {
-                    warn!("Received unexpected channel message: {:?}", message);
                 }
             }
         }
@@ -852,6 +885,57 @@ impl Coordinator {
         Ok(())
     }
 
+    async fn publish_raw_input_messages_2(&self, input_2: &ReadInput2, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/2", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_2)?, false).await {
+            error!("Failed to publish raw input messages: {}", e);
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages_3(&self, input_3: &ReadInput3, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/3", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_3)?, false).await {
+            error!("Failed to publish raw input messages: {}", e);
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages_4(&self, input_4: &ReadInput4, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/4", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_4)?, false).await {
+            error!("Failed to publish raw input messages: {}", e);
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn publish_raw_input_messages_5(&self, input_5: &ReadInput5, inverter: &config::Inverter) -> Result<()> {
         if !self.config.mqtt().enabled() {
             return Ok(());
@@ -860,6 +944,23 @@ impl Coordinator {
         // Publish raw values
         let topic = format!("{}/inputs/5", inverter.datalog);
         if let Err(e) = self.publish_message(topic, serde_json::to_string(input_5)?, false).await {
+            error!("Failed to publish raw input messages: {}", e);
+            if let Ok(mut stats) = self.stats.lock() {
+                stats.mqtt_errors += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn publish_raw_input_messages_6(&self, input_6: &ReadInput6, inverter: &config::Inverter) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        let topic = format!("{}/inputs/6", inverter.datalog);
+        if let Err(e) = self.publish_message(topic, serde_json::to_string(input_6)?, false).await {
             error!("Failed to publish raw input messages: {}", e);
             if let Ok(mut stats) = self.stats.lock() {
                 stats.mqtt_errors += 1;

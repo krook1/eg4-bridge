@@ -899,9 +899,9 @@ pub struct ReadInput6 {
     pub pf_cmd_memory_q_ref: u16,        // Power factor command memory reference reactive power
 
     // following are for influx capability only
-    #[nom(Parse = "Utils::current_time_for_nom")]
+    #[serde(skip_serializing)]
     pub time: UnixTime,
-    #[nom(Ignore)]
+    #[serde(skip_serializing)]
     pub datalog: Serial,
 }
 
@@ -913,6 +913,7 @@ pub struct ReadInputs {
     read_input_3: Option<ReadInput3>,
     read_input_4: Option<ReadInput4>,
     read_input_5: Option<ReadInput5>,
+    read_input_6: Option<ReadInput6>,
 }
 
 impl ReadInputs {
@@ -930,6 +931,9 @@ impl ReadInputs {
     }
     pub fn set_read_input_5(&mut self, i: ReadInput5) {
         self.read_input_5 = Some(i);
+    }
+    pub fn set_read_input_6(&mut self, i: ReadInput6) {
+        self.read_input_6 = Some(i);
     }
 
     pub fn to_input_all(&self) -> Option<ReadInputAll> {

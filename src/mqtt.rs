@@ -169,6 +169,11 @@ impl Message {
                 retain: false,
                 payload: serde_json::to_string(&r5)?,
             }),
+            Ok(ReadInput::ReadInput6(r6)) => r.push(mqtt::Message {
+                topic: format!("{}/inputs/6", td.datalog),
+                retain: false,
+                payload: serde_json::to_string(&r6)?,
+            }),
             Err(x) => warn!("ignoring {:?}", x),
         }
 

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 // this just needs to be bigger than the max register we'll see
-const REGISTER_COUNT: usize = 256;
+const REGISTER_COUNT: usize = 512;
 
 #[derive(Clone, Debug)]
 pub enum ChannelData {
