@@ -167,20 +167,20 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         63 => format!("Power Soft Start Slope: {}", value),
 
         // System Control (64-67)
-        64 => format!("System Charge Rate: {}%", value),
-        65 => format!("System Discharge Rate: {}%", value),
-        66 => format!("Grid Charge Power Rate: {}%", value),
-        67 => format!("AC Charge SOC Limit: {}%", value),
-        68 => format!("AC Charge Start Minute: {} (0-59)", value),
-        69 => format!("AC Charge End Minute: {} (0-59)", value),
+        64 => format!("Register {} - System Charge Rate: {}%", reg, value),
+        65 => format!("Register {} - System Discharge Rate: {}%", reg, value),
+        66 => format!("Register {} - Grid Charge Power Rate: {}%", reg, value),
+        67 => format!("Register {} - AC Charge SOC Limit: {}%", reg, value),
+        68 => format!("Register {} - AC Charge Start Minute: {} (0-59)", reg, value),
+        69 => format!("Register {} - AC Charge End Minute: {} (0-59)", reg, value),
 
         // Charging Priority Settings (74-79)
-        74 => format!("Charging Priority Percentage: {}%", value),
-        75 => format!("Charging Priority SOC Limit: {}%", value),
-        76 => format!("Charging Priority Start Minute: {} (0-59)", value),
-        77 => format!("Charging Priority End Minute: {} (0-59)", value),
-        78 => format!("Charging Priority Start Hour 1: {} (0-23)", value),
-        79 => format!("Charging Priority End Hour 1: {} (0-23)", value),
+        74 => format!("Register {} - Charging Priority Percentage: {}%", reg, value),
+        75 => format!("Register {} - Charging Priority SOC Limit: {}%", reg, value),
+        76 => format!("Register {} - Charging Priority Start Minute: {} (0-59)", reg, value),
+        77 => format!("Register {} - Charging Priority End Minute: {} (0-59)", reg, value),
+        78 => format!("Register {} - Charging Priority Start Hour 1: {} (0-23)", reg, value),
+        79 => format!("Register {} - Charging Priority End Hour 1: {} (0-23)", reg, value),
 
         // System Type and Battery Settings (80-82)
         80 => {

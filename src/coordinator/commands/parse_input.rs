@@ -4,7 +4,7 @@ use crate::prelude::*;
 pub fn parse_input_register(reg: u16, value: u16) -> String {
     match reg {
         // System Status (0-39)
-        0 => format!("Inverter Status: {}", match value {
+        0 => format!("Register {} - Inverter Status: {}", reg, match value {
             0 => "Standby - Waiting",
             1 => "Self-Test",
             2 => "Normal Operation",
@@ -12,52 +12,52 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
             4 => "Fault",
             _ => "Unknown Status"
         }),
-        1 => format!("PV1 Voltage (Vpv1): {:.1} V", (value as f64) / 10.0),
-        2 => format!("PV2 Voltage (Vpv2): {:.1} V", (value as f64) / 10.0),
-        3 => format!("PV3 Voltage (Vpv3): {:.1} V", (value as f64) / 10.0),
-        4 => format!("Battery Voltage (Vbat): {:.1} V", (value as f64) / 10.0),
-        5 => format!("State of Charge (SOC): {}%", value.min(100)),
-        6 => format!("Internal Fault: {:#06x} (See Internal DTC Definitions)", value),
-        7 => format!("PV1 Power (Ppv1): {} W", value),
-        8 => format!("PV2 Power (Ppv2): {} W", value),
-        9 => format!("PV3 Power (Ppv3): {} W", value),
-        10 => format!("Charge Power (Pcharge): {} W (incoming battery power)", value),
-        11 => format!("Discharge Power (Pdischarge): {} W (outflow battery power)", value),
-        12 => format!("R-phase Mains Voltage (VacR): {:.1} V", (value as f64) / 10.0),
-        13 => format!("S-phase Mains Voltage (VacS): {:.1} V", (value as f64) / 10.0),
-        14 => format!("T-phase Mains Voltage (VacT): {:.1} V", (value as f64) / 10.0),
-        15 => format!("Mains Frequency (Fac): {:.2} Hz", (value as f64) / 100.0),
-        16 => format!("Inverter Output Power (Pinv): {} W (Grid port)", value),
-        17 => format!("AC Charging Rectified Power (Prec): {} W", value),
-        18 => format!("Inverter Current RMS (IinvRMS): {:.2} A", (value as f64) / 100.0),
+        1 => format!("Register {} - PV1 Voltage (Vpv1): {:.1} V", reg, (value as f64) / 10.0),
+        2 => format!("Register {} - PV2 Voltage (Vpv2): {:.1} V", reg, (value as f64) / 10.0),
+        3 => format!("Register {} - PV3 Voltage (Vpv3): {:.1} V", reg, (value as f64) / 10.0),
+        4 => format!("Register {} - Battery Voltage (Vbat): {:.1} V", reg, (value as f64) / 10.0),
+        5 => format!("Register {} - State of Charge (SOC): {}%", reg, value.min(100)),
+        6 => format!("Register {} - Internal Fault: {:#06x} (See Internal DTC Definitions)", reg, value),
+        7 => format!("Register {} - PV1 Power (Ppv1): {} W", reg, value),
+        8 => format!("Register {} - PV2 Power (Ppv2): {} W", reg, value),
+        9 => format!("Register {} - PV3 Power (Ppv3): {} W", reg, value),
+        10 => format!("Register {} - Charge Power (Pcharge): {} W (incoming battery power)", reg, value),
+        11 => format!("Register {} - Discharge Power (Pdischarge): {} W (outflow battery power)", reg, value),
+        12 => format!("Register {} - R-phase Mains Voltage (VacR): {:.1} V", reg, (value as f64) / 10.0),
+        13 => format!("Register {} - S-phase Mains Voltage (VacS): {:.1} V", reg, (value as f64) / 10.0),
+        14 => format!("Register {} - T-phase Mains Voltage (VacT): {:.1} V", reg, (value as f64) / 10.0),
+        15 => format!("Register {} - Mains Frequency (Fac): {:.2} Hz", reg, (value as f64) / 100.0),
+        16 => format!("Register {} - Inverter Output Power (Pinv): {} W (Grid port)", reg, value),
+        17 => format!("Register {} - AC Charging Rectified Power (Prec): {} W", reg, value),
+        18 => format!("Register {} - Inverter Current RMS (IinvRMS): {:.2} A", reg, (value as f64) / 100.0),
         19 => {
             let pf = if value <= 1000 {
                 value as f64 / 1000.0
             } else {
                 (2000 - value) as f64 / 1000.0
             };
-            format!("Power Factor (PF): {:.3}", pf)
+            format!("Register {} - Power Factor (PF): {:.3}", reg, pf)
         },
-        20 => format!("R-phase Off-grid Output Voltage (VepsR): {:.1} V", (value as f64) / 10.0),
-        21 => format!("S-phase Off-grid Output Voltage (VepsS): {:.1} V", (value as f64) / 10.0),
-        22 => format!("T-phase Off-grid Output Voltage (VepsT): {:.1} V", (value as f64) / 10.0),
-        23 => format!("Off-grid Output Frequency (Feps): {:.2} Hz", (value as f64) / 100.0),
-        24 => format!("Off-grid Inverter Power (Peps): {} W", value),
-        25 => format!("Off-grid Apparent Power (Seps): {} VA", value),
-        26 => format!("Export Power to Grid (Ptogrid): {} W", value),
-        27 => format!("Import Power from Grid (Ptouser): {} W", value),
-        28 => format!("PV1 Power Generation Today (Epv1_day): {:.1} kWh", (value as f64) / 10.0),
-        29 => format!("PV2 Power Generation Today (Epv2_day): {:.1} kWh", (value as f64) / 10.0),
-        30 => format!("PV3 Power Generation Today (Epv3_day): {:.1} kWh", (value as f64) / 10.0),
-        31 => format!("Grid-connected Inverter Output Energy Today (Einv_day): {:.1} kWh", (value as f64) / 10.0),
-        32 => format!("AC Charging Rectified Energy Today (Erec_day): {:.1} kWh", (value as f64) / 10.0),
-        33 => format!("Charged Energy Today (Echg_day): {:.1} kWh", (value as f64) / 10.0),
-        34 => format!("Discharged Energy Today (Edischg_day): {:.1} kWh", (value as f64) / 10.0),
-        35 => format!("Off-grid Output Energy Today (Eeps_day): {:.1} kWh", (value as f64) / 10.0),
-        36 => format!("Export Energy to Grid Today (Etogrid_day): {:.1} kWh", (value as f64) / 10.0),
-        37 => format!("Import Energy from Grid Today (Etouser_day): {:.1} kWh", (value as f64) / 10.0),
-        38 => format!("Bus 1 Voltage (Vbus1): {:.1} V", (value as f64) / 10.0),
-        39 => format!("Bus 2 Voltage (Vbus2): {:.1} V", (value as f64) / 10.0),
+        20 => format!("Register {} - R-phase Off-grid Output Voltage (VepsR): {:.1} V", reg, (value as f64) / 10.0),
+        21 => format!("Register {} - S-phase Off-grid Output Voltage (VepsS): {:.1} V", reg, (value as f64) / 10.0),
+        22 => format!("Register {} - T-phase Off-grid Output Voltage (VepsT): {:.1} V", reg, (value as f64) / 10.0),
+        23 => format!("Register {} - Off-grid Output Frequency (Feps): {:.2} Hz", reg, (value as f64) / 100.0),
+        24 => format!("Register {} - Off-grid Inverter Power (Peps): {} W", reg, value),
+        25 => format!("Register {} - Off-grid Apparent Power (Seps): {} VA", reg, value),
+        26 => format!("Register {} - Export Power to Grid (Ptogrid): {} W", reg, value),
+        27 => format!("Register {} - Import Power from Grid (Ptouser): {} W", reg, value),
+        28 => format!("Register {} - PV1 Power Generation Today (Epv1_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        29 => format!("Register {} - PV2 Power Generation Today (Epv2_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        30 => format!("Register {} - PV3 Power Generation Today (Epv3_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        31 => format!("Register {} - Grid-connected Inverter Output Energy Today (Einv_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        32 => format!("Register {} - AC Charging Rectified Energy Today (Erec_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        33 => format!("Register {} - Charged Energy Today (Echg_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        34 => format!("Register {} - Discharged Energy Today (Edischg_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        35 => format!("Register {} - Off-grid Output Energy Today (Eeps_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        36 => format!("Register {} - Export Energy to Grid Today (Etogrid_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        37 => format!("Register {} - Import Energy from Grid Today (Etouser_day): {:.1} kWh", reg, (value as f64) / 10.0),
+        38 => format!("Register {} - Bus 1 Voltage (Vbus1): {:.1} V", reg, (value as f64) / 10.0),
+        39 => format!("Register {} - Bus 2 Voltage (Vbus2): {:.1} V", reg, (value as f64) / 10.0),
 
         // Cumulative Energy Statistics (40-59)
         40..=59 => {
@@ -84,7 +84,7 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
                 59 => "Cumulative Import Energy from Grid High Word (Etouser_all H)",
                 _ => "Unknown Cumulative Energy Register"
             };
-            format!("{}: {:.1} kWh", desc, (value as f64) / 10.0)
+            format!("Register {} - {}: {:.1} kWh", reg, desc, (value as f64) / 10.0)
         },
 
         // System Status and Temperature (60-67)
@@ -152,35 +152,35 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         75 => format!("AutoTest Trip Time (uwAutoTestTripTime): {} ms", value),
 
         // AC Input and Reserved (76-80)
-        77 => format!("AC Input Type: {}", if value == 0 { "Grid" } else { "Generator (12K Hybrid)" }),
-        76 | 78 | 79 | 80 => format!("Reserved Register {}", reg),
+        77 => format!("Register {} - AC Input Type: {}", reg, if value == 0 { "Grid" } else { "Generator (12K Hybrid)" }),
+        76 | 78 | 79 | 80 => format!("Register {} - Reserved Register", reg),
 
         // BMS Data (81-112)
-        81 => format!("BMS Max Charging Current (MaxChgCurr): {:.2} A", (value as f64) / 100.0),
-        82 => format!("BMS Max Discharge Current (MaxDischgCurr): {:.2} A", (value as f64) / 100.0),
-        83 => format!("BMS Recommended Charging Voltage (ChargeVoltRef): {:.1} V", (value as f64) / 10.0),
-        84 => format!("BMS Recommended Discharge Cut-off Voltage (DischgCutVolt): {:.1} V", (value as f64) / 10.0),
-        85..=94 => format!("BMS Status {} (BatStatus{}_BMS): {:#06x}", reg - 85, reg - 85, value),
-        95 => format!("Inverter Battery Status (BatStatus_INV): {:#06x}", value),
-        96 => format!("Number of Batteries in Parallel (BatParallelNum): {}", value),
-        97 => format!("Battery Capacity (BatCapacity): {} Ah", value),
-        98 => format!("BMS Battery Current (BatCurrent_BMS): {:.2} A", (value as i16 as f64) / 100.0),
-        99 => format!("BMS Fault Code (FaultCode_BMS): {:#06x}", value),
-        100 => format!("BMS Warning Code (WarningCode_BMS): {:#06x}", value),
-        101 => format!("BMS Maximum Cell Voltage (MaxCellVolt_BMS): {:.3} V", (value as f64) / 1000.0),
-        102 => format!("BMS Minimum Cell Voltage (MinCellVolt_BMS): {:.3} V", (value as f64) / 1000.0),
-        103 => format!("BMS Maximum Cell Temperature (MaxCellTemp_BMS): {:.1} °C", (value as i16 as f64) / 10.0),
-        104 => format!("BMS Minimum Cell Temperature (MinCellTemp_BMS): {:.1} °C", (value as i16 as f64) / 10.0),
-        105 => format!("BMS Firmware Update State (BMSFWUpdateState): {}", match value {
+        81 => format!("Register {} - BMS Max Charging Current (MaxChgCurr): {:.2} A", reg, (value as f64) / 100.0),
+        82 => format!("Register {} - BMS Max Discharge Current (MaxDischgCurr): {:.2} A", reg, (value as f64) / 100.0),
+        83 => format!("Register {} - BMS Recommended Charging Voltage (ChargeVoltRef): {:.1} V", reg, (value as f64) / 10.0),
+        84 => format!("Register {} - BMS Recommended Discharge Cut-off Voltage (DischgCutVolt): {:.1} V", reg, (value as f64) / 10.0),
+        85..=94 => format!("Register {} - BMS Status {} (BatStatus{}_BMS): {:#06x}", reg, reg - 85, reg - 85, value),
+        95 => format!("Register {} - Inverter Battery Status (BatStatus_INV): {:#06x}", reg, value),
+        96 => format!("Register {} - Number of Batteries in Parallel (BatParallelNum): {}", reg, value),
+        97 => format!("Register {} - Battery Capacity (BatCapacity): {} Ah", reg, value),
+        98 => format!("Register {} - BMS Battery Current (BatCurrent_BMS): {:.2} A", reg, (value as i16 as f64) / 100.0),
+        99 => format!("Register {} - BMS Fault Code (FaultCode_BMS): {:#06x}", reg, value),
+        100 => format!("Register {} - BMS Warning Code (WarningCode_BMS): {:#06x}", reg, value),
+        101 => format!("Register {} - BMS Maximum Cell Voltage (MaxCellVolt_BMS): {:.3} V", reg, (value as f64) / 1000.0),
+        102 => format!("Register {} - BMS Minimum Cell Voltage (MinCellVolt_BMS): {:.3} V", reg, (value as f64) / 1000.0),
+        103 => format!("Register {} - BMS Maximum Cell Temperature (MaxCellTemp_BMS): {:.1} °C", reg, (value as i16 as f64) / 10.0),
+        104 => format!("Register {} - BMS Minimum Cell Temperature (MinCellTemp_BMS): {:.1} °C", reg, (value as i16 as f64) / 10.0),
+        105 => format!("Register {} - BMS Firmware Update State (BMSFWUpdateState): {}", reg, match value {
             1 => "Upgrading",
             2 => "Upgrade Successful",
             3 => "Upgrade Failed",
             _ => "Unknown"
         }),
-        106 => format!("BMS Cycle Count (CycleCnt_BMS): {}", value),
-        107 => format!("Inverter Battery Voltage Sample (BatVoltSample_INV): {:.1} V", (value as f64) / 10.0),
-        108 => format!("12K BT Temperature (T1): {:.1} °C", (value as f64) / 10.0),
-        109..=112 => format!("Reserved Temperature {} (T{}): {:.1} °C", reg - 108, reg - 107, (value as f64) / 10.0),
+        106 => format!("Register {} - BMS Cycle Count (CycleCnt_BMS): {}", reg, value),
+        107 => format!("Register {} - Inverter Battery Voltage Sample (BatVoltSample_INV): {:.1} V", reg, (value as f64) / 10.0),
+        108 => format!("Register {} - 12K BT Temperature (T1): {:.1} °C", reg, (value as f64) / 10.0),
+        109..=112 => format!("Register {} - Reserved Temperature {} (T{}): {:.1} °C", reg, reg - 108, reg - 107, (value as f64) / 10.0),
 
         // Parallel System Status (113-119)
         113 => {
@@ -227,12 +227,12 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         138 => format!("EPS L2N Total Energy High Word (EepsL2N_all H): {:.1} kWh", (value as f64) / 10.0),
 
         // AFCI Data (139-152)
-        139 => format!("AFCI Self-Test Status: {}", match value {
+        139 => format!("Register {} - AFCI Self-Test Status: {}", reg, match value {
             0 => "Not Activated",
             1 => "Activated",
             _ => "Unknown"
         }),
-        140..=143 => format!("AFCI Current CH{} (AFCI_CurrCH{}): {} mA", reg - 139, reg - 139, value),
+        140..=143 => format!("Register {} - AFCI Current CH{} (AFCI_CurrCH{}): {} mA", reg, reg - 139, reg - 139, value),
         144 => {
             let mut flags = Vec::new();
             for i in 0..4 {
@@ -243,15 +243,16 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
                     flags.push(format!("Self-Test Failed CH{}", i + 1));
                 }
             }
-            format!("AFCI Status Flags: {:#06x}\nActive Flags: {}", 
+            format!("Register {} - AFCI Status Flags: {:#06x}\nActive Flags: {}", 
+                reg,
                 value,
                 if flags.is_empty() { "None".to_string() } else { flags.join(", ") }
             )
         },
-        145..=148 => format!("AFCI Max Arc CH{} (AFCI_MaxArcCH{}): {} mA", reg - 144, reg - 144, value),
-        149..=152 => format!("Reserved AFCI Register {}", reg),
+        145..=148 => format!("Register {} - AFCI Max Arc CH{} (AFCI_MaxArcCH{}): {} mA", reg, reg - 144, reg - 144, value),
+        149..=152 => format!("Register {} - Reserved AFCI Register", reg),
 
         // Default case for unknown registers
-        _ => format!("Unknown input register {}: {}", reg, value),
+        _ => format!("Register {} - Unknown input register: {}", reg, value),
     }
 } 
