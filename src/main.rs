@@ -38,6 +38,11 @@ async fn handle_signals(shutdown_tx: oneshot::Sender<()>) -> Result<()> {
         },
     }
 
+    if let Ok(stats) = self.coordinator.stats.lock() {
+        info!("Final Statistics:"); 
+        stats.print_summary();
+    }
+
     // Send shutdown signal to trigger proper cleanup
     let _ = shutdown_tx.send(());
     Ok(())

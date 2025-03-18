@@ -129,7 +129,8 @@ struct Components {
 impl Components {
     fn stop(mut self) {
         // Print statistics before shutdown
-        if let Some(stats) = self.coordinator.stats.lock().ok() {
+        if let Ok(stats) = self.coordinator.stats.lock() {
+            info!("Final Statistics:");
             stats.print_summary();
         }
 
@@ -139,8 +140,8 @@ impl Components {
         let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
         let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
         
-        // Give a moment for shutdown signals to be processed
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Give a moment for shutdown signals to be processed and statistics to be printed
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         // Now stop all components
         info!("Stopping components...");
@@ -166,33 +167,4 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
     let futures = inverters.iter().map(|i| i.start());
     futures::future::join_all(futures).await;
     Ok(())
-}
-
-impl App {
-    async fn shutdown_sequence(&mut self) -> Result<()> {
-        info!("Initiating shutdown sequence");
-
-        // First send shutdown signals to all components
-        info!("Sending shutdown signals...");
-        let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
-        let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
-        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
-
-        // Give components time to process final messages and update statistics
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-
-        // Get a lock on the statistics and print them
-        if let Ok(stats) = self.coordinator.stats.lock() {
-            info!("Final statistics:");
-            stats.print_summary();
-        } else {
-            error!("Could not acquire lock to print statistics");
-        }
-
-        // Give a moment for shutdown signals to be processed
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-        info!("Shutdown complete");
-        Ok(())
-    }
 }
