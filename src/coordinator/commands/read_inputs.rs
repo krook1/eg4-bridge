@@ -5,6 +5,8 @@ use lxp::{
     packet::{DeviceFunction, TranslatedData},
 };
 
+use super::validation::validate_register_block_boundary;
+
 pub struct ReadInputs {
     channels: Channels,
     inverter: config::Inverter,
@@ -26,6 +28,9 @@ impl ReadInputs {
     }
 
     pub async fn run(&self) -> Result<Packet> {
+        // Validate block boundaries before proceeding
+        validate_register_block_boundary(self.register, self.count)?;
+
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog(),
             device_function: DeviceFunction::ReadInput,

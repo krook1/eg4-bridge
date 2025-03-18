@@ -6,3 +6,7 @@ pub mod time_register_ops;
 pub mod timesync;
 pub mod update_hold;
 pub mod write_param;
+pub mod validation;
+
+// Re-export common validation functions
+pub use validation::*;

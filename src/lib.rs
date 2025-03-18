@@ -128,6 +128,11 @@ struct Components {
 
 impl Components {
     fn stop(mut self) {
+        // Print statistics before shutdown
+        if let Some(stats) = self.coordinator.stats.lock().ok() {
+            stats.print_summary();
+        }
+
         // First send shutdown signals to all components
         info!("Sending shutdown signals...");
         let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
