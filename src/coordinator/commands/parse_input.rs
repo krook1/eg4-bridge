@@ -250,7 +250,11 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
             )
         },
         145..=148 => format!("Register {} - AFCI Max Arc CH{} (AFCI_MaxArcCH{}): {} mA", reg, reg - 144, reg - 144, value),
-        149..=152 => format!("Register {} - Reserved AFCI Register", reg),
+        149 => format!("Register {} - AFCI_MaxArcCH1: {}", reg, value),
+        150 => format!("Register {} - AFCI_MaxArcCH2: {}", reg, value),
+        151 => format!("Register {} - AFCI_MaxArcCH3: {}", reg, value),
+        152 => format!("Register {} - AFCI_MaxArcCH4: {}", reg, value),
+
         244 => format!("Register {} - 12K_BOOT_LOADER_VERSION: {}", reg, value),
         245 => format!("Register {} - 12K_CHIP_FLASH_SIZE: {}", reg, value),
         252 => format!("Register {} - 12K_BUS_BAR_CURRENT: (): {} Amps", reg, value),
