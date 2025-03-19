@@ -342,20 +342,83 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         100 => format!("Register: {} Maintenance Time: {} minutes", reg, value),
         118 => format!("Register: {} VbatStartDerating: {} V", reg, value),
         119 => format!("Register: {} wCT_PowerOffset: {} W", reg, value),
+  
+        134 => format!("Register: {} UVFDerateStartPoint: {} Hz", reg, value), // 0.01Hz
+        135 => format!("Register: {} UVFDerateEndPoint: {} Hz", reg, value), // 0.01Hz
+        136 => format!("Register: {} OVFDerateRatio: {} ", reg, value), // %Pm/Hz Underfrequency load shedding slope
+
+        137 => format!("Register: {} SpecLoadCompensate: {} W", reg, value), // Maximum compensation amount for a specific load
+        138 => format!("Register: {} ChargePowerPercentCMD: {}", reg, value), // 0.1% Charging power percentage setting
+        139 => format!("Register: {} DischgPowerPercentCMD: {}", reg, value), // 0.1% Discharge power percentage setting
+
+        140 => format!("Register: {} ACChgPowerCMD: {}", reg, value), // 0.1% ACChgPowerCMD
+        141 => format!("Register: {} ChgFirstPowerCMD: {}", reg, value), // 0.1% ChgFirstPowerCMD
+
+        142 => format!("Register: {} ForcedDischgPowerCMD: {}", reg, value), // 0.1% ForcedDischgPowerCMD
+        143 => format!("Register: {} ActivePowerPercentCMD: {}", reg, value), // 0.1% ActivePowerPercentCMD
 
         144 => format!("Register: {} FloatChargeVolt: {} V", reg, value), // 0.1V
-        145 => format!("Register: {} OutputPrioConfig: {}", reg, value),
+        145 => format!("Register: {} OutputPrioConfig: {}", reg, value), // 0-bat first 1-PV first 2-AC first
+
         146 => format!("Register: {} LineMode: {}", reg, value), // 0-APL (90-280V 20ms) 1- UPS (170-280V 10ms) 2- GEN (90-280V 20ms)
+
         147 => format!("Register: {} Battery capacity: {} Ah", reg, value), // Ah
         148 => format!("Register: {} Battery nominal Voltage: {} V", reg, value), // 0.1v units
 
+        149 => format!("Register: {} EqualizationVolt: {} ", reg, value), // EqualizationVolt
+        150 => format!("Register: {} EqualizationInterval: {} ", reg, value), // Days (0-365) Equalization interval
+        151 => format!("Register: {} EqualizationTime: {} ", reg, value), // hour (0-24) Equalization time
+
+        // AC load start time_hour + minute setting
+        152 => { 
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF; 
+            format!("Register: {} - ACFirstStartHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        }
+        // AC load stop time_hour + minute setting
+        153 => {
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
+            format!("Register: {} - ACFirstEndHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        }
+        154 => {
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
+            format!("Register: {} - ACFirstStartHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        } 
+        // AC load stop time_hour + minute setting
+        155 => {
+            let minute = (value >> 8) & 0xFF; 
+            let hour = value & 0xFF;
+            format!("Register: {} - ACFirstEndHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        }
+        156 => {
+            let minute = (value >> 8) & 0xFF;
+            let hour = value & 0xFF;
+            format!("Register: {} - ACFirstStartHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        } 
+        // AC load stop time_hour + minute setting
+        157 => {
+            let minute = (value >> 8) & 0xFF; 
+            let hour = value & 0xFF;
+            format!("Register: {} - ACFirstEndHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+
+        }
+        158 => format!("Register: {} - ACChgStartVolt: {:.1} V", reg, (value as f64) / 10.0),
+        159 => format!("Register: {} - ACChgEndVolt: {:.1} V", reg, (value as f64) / 10.0),
+
         // AC Charge Settings (160-161)
-        160 => format!("AC Charge Start SOC: {}%", value),
-        161 => format!("AC Charge End SOC: {}%", value),
+        160 => format!("Register: {} - AC Charge Start SOC: {}%", reg, value),
+        161 => format!("Register: {} - AC Charge End SOC: {}%", reg, value),
 
         // Battery Warning Settings (162-169)
-        162 => format!("Battery Warning Voltage: {:.1} V", (value as f64) / 10.0),
-        163 => format!("Battery Warning Recovery Voltage: {:.1} V", (value as f64) / 10.0),
+        162 => format!("Register: {} - Battery Warning Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        163 => format!("Register: {} - Battery Warning Recovery Voltage: {:.1} V", reg, (value as f64) / 10.0),
         164 => format!("Battery Warning SOC: {}%", value),
         165 => format!("Battery Warning Recovery SOC: {}%", value),
         166 => format!("Battery Low to Utility Voltage: {:.1} V", (value as f64) / 10.0),

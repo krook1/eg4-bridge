@@ -69,7 +69,7 @@ impl WaitForReply for Receiver {
                     }
                 }
                 (_, Ok(ChannelData::Packet(_))) => {} // Mismatched packet, continue waiting
-                (_, Ok(ChannelData::Heartbeat(_))) => {} // Heartbeat received, continue waiting
+                (_, Ok(ChannelData::Heartbeat(_))) => { info!("heartbeat_rx from") } // Heartbeat received, continue waiting
                 (_, Ok(ChannelData::Connected(_))) => {} // Connection status update, continue waiting
                 (_, Ok(ChannelData::Disconnect(inverter_datalog))) => {
                     if inverter_datalog == packet.datalog() {
@@ -232,22 +232,24 @@ impl Inverter {
 
         // Send Connected message after tasks are started
         if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog())) {
-            warn!("Failed to send Connected message: {}", e);
+            warn!("{}:Failed to send Connected message: {}", inverter_config.datalog(), e);
+        } else {
+            info!("{}:sent Connected message", inverter_config.datalog())
         }
 
         tokio::select! {
             res = sender_task => {
                 if let Err(e) = res {
-                    warn!("Sender task ended with error: {}", e);
+                    warn!("Sender task ended with error: {} for {}", e, inverter_config.datalog());
                 } else {
-                    warn!("Sender task ended");
+                    warn!("Sender task ended for {}", inverter_config.datalog());
                 }
             }
             res = receiver_task => {
                 if let Err(e) = res {
-                    warn!("Receiver task ended with error: {}", e);
+                    warn!("Receiver task ended with error: {} for {}", e, inverter_config.datalog());
                 } else {
-                    warn!("Receiver task ended");
+                    warn!("Receiver task ended for {}", inverter_config.datalog());
                 }
             }
         }
@@ -295,24 +297,24 @@ impl Inverter {
                         Ok(Ok(_)) => {
                             // Ensure data is actually sent
                             if let Err(e) = writer.flush().await {
-                                bail!("Failed to flush socket: {}", e);
+                                bail!("Failed to flush socket: {} for {}", e, inverter_config.datalog());
                             }
                         }
-                        Ok(Err(e)) => bail!("Failed to write packet: {}", e),
-                        Err(_) => bail!("Write operation timed out after {} seconds", WRITE_TIMEOUT_SECS),
+                        Ok(Err(e)) => bail!("Failed to write packet: {} for {}", e, inverter_config.datalog()),
+                        Err(_) => bail!("{}:Write operation timed out after {} seconds", inverter_config.datalog(), WRITE_TIMEOUT_SECS),
                     }
                 }
                 Ok(ChannelData::Heartbeat(hb)) => {
                     let packet = hb.clone();
                     if let Err(e) = self.handle_incoming_packet(packet) {
-                        warn!("Failed to handle heartbeat packet: {}", e);
+                        warn!("{}:Failed to handle heartbeat packet: {}", inverter_config.datalog(), e);
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    bail!("Channel closed");
+                    bail!("{}:Channel closed", inverter_config.datalog());
                 }
                 Err(e) => {
-                    warn!("Error receiving from channel: {}", e);
+                    warn!("{}:Error receiving from channel: {}", inverter_config.datalog(), e);
                     continue;
                 }
             }

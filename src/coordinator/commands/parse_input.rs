@@ -223,6 +223,7 @@ pub fn parse_input_register(reg: u16, value: u32) -> String {
         103 => format!("Register {} - BMS Maximum Cell Temperature (MaxCellTemp_BMS): {:.1} °C", reg, (value as i16 as f64) / 10.0),
         104 => format!("Register {} - BMS Minimum Cell Temperature (MinCellTemp_BMS): {:.1} °C", reg, (value as i16 as f64) / 10.0),
         105 => format!("Register {} - BMS Firmware Update State (BMSFWUpdateState): {} - {}", reg, value, match value {
+            0 => "N/A", 
             1 => "Upgrading",
             2 => "Upgrade Successful",
             3 => "Upgrade Failed",

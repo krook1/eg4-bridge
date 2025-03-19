@@ -166,6 +166,25 @@ pub async fn app() -> Result<()> {
     }
     info!("InfluxDB started successfully");
 
+    // Start Coordinator before inverters to ensure it's ready to receive messages
+    info!("Starting Coordinator...");
+    let coordinator_handle = tokio::spawn({
+        let coordinator = coordinator.clone();
+        async move {
+            if let Err(e) = coordinator.start().await {
+                error!("Coordinator error: {}", e);
+            }
+        }
+    });
+
+    // Start RegisterCache before inverters
+    info!("Starting RegisterCache...");
+    let register_cache_handle = tokio::spawn(async move {
+        if let Err(e) = register_cache.start().await {
+            error!("RegisterCache error: {}", e);
+        }
+    });
+
     // Start inverters
     info!("Starting inverters...");
     if let Err(e) = start_inverters(inverters.clone()).await {
@@ -176,14 +195,12 @@ pub async fn app() -> Result<()> {
     info!("Inverters started successfully");
 
     // Start remaining components
-    info!("Starting remaining components (scheduler, MQTT, register cache, coordinator)...");
+    info!("Starting remaining components (scheduler, MQTT)...");
     let app_result = tokio::select! {
         res = async {
             futures::try_join!(
                 scheduler.start(),
                 mqtt.start(),
-                register_cache.start(),
-                coordinator.start(),
             )
         } => {
             if let Err(e) = res {
