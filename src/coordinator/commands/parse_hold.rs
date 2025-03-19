@@ -29,10 +29,10 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 },
                 value)
         }
-        7 => format!("Register: {} - Firmware Version Code: {}", reg, value),
-        8 => format!("Register: {} - Backup Firmware Version Code: {}", reg, value),
-        9 => format!("Register: {} - Slave CPU Version (Redundant): {:#06x}", reg, value),
-        10 => format!("Register: {} - Control CPU Version: {:#06x}", reg, value),
+        7 => format!("Hold Register: {} - Firmware Version Code: {}", reg, value),
+        8 => format!("Hold Register: {} - Backup Firmware Version Code: {}", reg, value),
+        9 => format!("Hold Register: {} - Slave CPU Version (Redundant): {:#06x}", reg, value),
+        10 => format!("Hold Register: {} - Control CPU Version: {:#06x}", reg, value),
         11 => {
             let mut settings = Vec::new();
             if value & (1 << 0) != 0 { settings.push("Energy Record Clear"); }
@@ -51,7 +51,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             if value & (1 << 13) != 0 { settings.push("Reserved"); }
             if value & (1 << 14) != 0 { settings.push("Reserved"); }
             if value & (1 << 15) != 0 { settings.push("Reserved"); }
-            format!("Register: {} - Reset Settings: {:#018b}\nActive settings: {}", reg, value, settings.join(", "))
+            format!("Hold Register: {} - Reset Settings: {:#018b}\nActive settings: {}", reg, value, settings.join(", "))
         }
         12 => {
             let month = value >> 8;
@@ -68,9 +68,9 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             let minute = value & 0xFF;
             format!("Time: Second={} (0-59), Minute={} (0-59)", second, minute)
         }
-        15 => format!("Register: {} - Communication Address: {} (0-150)", reg, value),
-        16 => format!("Register: {} - Language: {} (1=English)", reg, value),
-        19 => format!("Register: {} - Version: {}", reg, value),
+        15 => format!("Hold Register: {} - Communication Address: {} (0-150)", reg, value),
+        16 => format!("Hold Register: {} - Language: {} (1=English)", reg, value),
+        19 => format!("Hold Register: {} - Version: {}", reg, value),
         20 => {
             let mode = match value {
                 0 => "No PV",
@@ -83,7 +83,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 7 => "PV1&2&3 Connected (12K Hybrid)",
                 _ => "Unknown"
             };
-            format!("Register: {} - PV Input Mode: {} - {}", reg, value, mode)
+            format!("Hold Register: {} - PV Input Mode: {} - {}", reg, value, mode)
         }
         21 => {
             let mut features = Vec::new();
@@ -103,17 +103,17 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             if value & (1 << 13) != 0 { features.push("GFCI"); }
             if value & (1 << 14) != 0 { features.push("DCI"); }
             if value & (1 << 15) != 0 { features.push("Feed In Grid"); }
-            format!("Register: {} - Function Enable Flags: {:#018b}\nEnabled features: {}", reg, value, features.join(", "))
+            format!("Hold Register: {} - Function Enable Flags: {:#018b}\nEnabled features: {}", reg, value, features.join(", "))
         }
-        22 => format!("Register: {} - Start PV Voltage: {:.1} V (90.0-500.0V)", reg, (value as f64) / 10.0),
-        23 => format!("Register: {} - Grid Connection Wait Time: {} seconds (30-600s)", reg, value),
-        24 => format!("Register: {} - Grid Reconnection Wait Time: {} seconds (0-900s)", reg, value),
+        22 => format!("Hold Register: {} - Start PV Voltage: {:.1} V (90.0-500.0V)", reg, (value as f64) / 10.0),
+        23 => format!("Hold Register: {} - Grid Connection Wait Time: {} seconds (30-600s)", reg, value),
+        24 => format!("Hold Register: {} - Grid Reconnection Wait Time: {} seconds (0-900s)", reg, value),
 
         // Grid Connection Limits (25-28)
-        25 => format!("Register: {} - Grid Connect Low Voltage: {:.1} V", reg, (value as f64) / 10.0),
-        26 => format!("Register: {} - Grid Connect High Voltage: {:.1} V", reg, (value as f64) / 10.0),
-        27 => format!("Register: {} - Grid Connect Low Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
-        28 => format!("Register: {} - Grid Connect High Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
+        25 => format!("Hold Register: {} - Grid Connect Low Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        26 => format!("Hold Register: {} - Grid Connect High Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        27 => format!("Hold Register: {} - Grid Connect Low Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
+        28 => format!("Hold Register: {} - Grid Connect High Frequency: {:.2} Hz", reg, (value as f64) / 100.0),
 
         // Grid Protection Settings (29-53)
         29..=53 => {
@@ -147,93 +147,93 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             };
             
             if reg % 2 == 0 && reg <= 41 {
-                format!("Register: {} - {}: {:.1} V", reg, desc, (value as f64) / 10.0)
+                format!("Hold Register: {} - {}: {:.1} V", reg, desc, (value as f64) / 10.0)
             } else if reg % 2 == 0 && reg > 41 {
-                format!("Register: {} - {}: {:.2} Hz", reg, desc, (value as f64) / 100.0)
+                format!("Hold Register: {} - {}: {:.2} Hz", reg, desc, (value as f64) / 100.0)
             } else {
-                format!("Register: {} - {}: {} ms", reg, desc, value)
+                format!("Hold Register: {} - {}: {} ms", reg, desc, value)
             }
         }
 
         // Power Quality Control (54-63)
-        54 => format!("Register: {} - Maximum Q Percent for Q(V) Curve: {}%", reg, value),
-        55 => format!("Register: {} - Q(V) Lower Voltage Point 1 (V1L): {:.1} V", reg, (value as f64) / 10.0),
-        56 => format!("Register: {} - Q(V) Lower Voltage Point 2 (V2L): {:.1} V", reg, (value as f64) / 10.0),
-        57 => format!("Register: {} - Q(V) Upper Voltage Point 1 (V1H): {:.1} V", reg, (value as f64) / 10.0),
-        58 => format!("Register: {} - Q(V) Upper Voltage Point 2 (V2H): {:.1} V", reg, (value as f64) / 10.0),
-        59 => format!("Register: {} - Reactive Power Command Type: {}", reg, value),
-        60 => format!("Register: {} - Active Power Percent Command: {}%", reg, value),
-        61 => format!("Register: {} - Reactive Power Percent Command: {}%", reg, value),
-        62 => format!("Register: {} - Power Factor Command: {:.3}", reg, (value as f64) / 1000.0),
-        63 => format!("Register: {} - Power Soft Start Slope: {}", reg, value),
+        54 => format!("Hold Register: {} - Maximum Q Percent for Q(V) Curve: {}%", reg, value),
+        55 => format!("Hold Register: {} - Q(V) Lower Voltage Point 1 (V1L): {:.1} V", reg, (value as f64) / 10.0),
+        56 => format!("Hold Register: {} - Q(V) Lower Voltage Point 2 (V2L): {:.1} V", reg, (value as f64) / 10.0),
+        57 => format!("Hold Register: {} - Q(V) Upper Voltage Point 1 (V1H): {:.1} V", reg, (value as f64) / 10.0),
+        58 => format!("Hold Register: {} - Q(V) Upper Voltage Point 2 (V2H): {:.1} V", reg, (value as f64) / 10.0),
+        59 => format!("Hold Register: {} - Reactive Power Command Type: {}", reg, value),
+        60 => format!("Hold Register: {} - Active Power Percent Command: {}%", reg, value),
+        61 => format!("Hold Register: {} - Reactive Power Percent Command: {}%", reg, value),
+        62 => format!("Hold Register: {} - Power Factor Command: {:.3}", reg, (value as f64) / 1000.0),
+        63 => format!("Hold Register: {} - Power Soft Start Slope: {}", reg, value),
 
         // System Control (64-67)
-        64 => format!("Register: {} - System Charge Rate: {}%", reg, value),
-        65 => format!("Register: {} - System Discharge Rate: {}%", reg, value),
-        66 => format!("Register: {} - Grid Charge Power Rate: {}%", reg, value),
-        67 => format!("Register: {} - AC Charge SOC Limit: {}%", reg, value),
+        64 => format!("Hold Register: {} - System Charge Rate: {}%", reg, value),
+        65 => format!("Hold Register: {} - System Discharge Rate: {}%", reg, value),
+        66 => format!("Hold Register: {} - Grid Charge Power Rate: {}%", reg, value),
+        67 => format!("Hold Register: {} - AC Charge SOC Limit: {}%", reg, value),
         68 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_0 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgStart_0 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         69 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         70 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_1 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgStart_1 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         71 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         72 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_2 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgStart_2 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         73 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         // Charging Priority Settings (74-79)
-        74 => format!("Register: {} - ChgFirstPowerCMD - Charging Priority Percentage: {}%", reg, value),
-        75 => format!("Register: {} - ChgFirstSOCLimit - Charging Priority SOC Limit: {}%", reg, value),
+        74 => format!("Hold Register: {} - ChgFirstPowerCMD - Charging Priority Percentage: {}%", reg, value),
+        75 => format!("Hold Register: {} - ChgFirstSOCLimit - Charging Priority SOC Limit: {}%", reg, value),
         76 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         77 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         78 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         79 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         80 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         81 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
 
         // System Type and Battery Settings (80-82)
@@ -250,12 +250,12 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         84 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ForcedDischgStart_0 - Forced discharge start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ForcedDischgStart_0 - Forced discharge start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         85 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
 
 
@@ -277,7 +277,7 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
                 2 => "ECO",
                 _ => "Unknown"
             };
-            format!("System Mode: {} - {}", value, system_mode)
+            format!("Hold Register: {} - System Mode: {} - {}", reg, value, system_mode)
         }
         92 => {
             let priority = match value {
@@ -339,95 +339,95 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
             };
             format!("Maintenance Mode: {} - {}", value, maintenance_mode)
         }
-        100 => format!("Register: {} Maintenance Time: {} minutes", reg, value),
-        118 => format!("Register: {} VbatStartDerating: {} V", reg, value),
-        119 => format!("Register: {} wCT_PowerOffset: {} W", reg, value),
+        100 => format!("Hold Register: {} Maintenance Time: {} minutes", reg, value),
+        118 => format!("Hold Register: {} VbatStartDerating: {} V", reg, value),
+        119 => format!("Hold Register: {} wCT_PowerOffset: {} W", reg, value),
   
-        134 => format!("Register: {} UVFDerateStartPoint: {} Hz", reg, value), // 0.01Hz
-        135 => format!("Register: {} UVFDerateEndPoint: {} Hz", reg, value), // 0.01Hz
-        136 => format!("Register: {} OVFDerateRatio: {} ", reg, value), // %Pm/Hz Underfrequency load shedding slope
+        134 => format!("Hold Register: {} UVFDerateStartPoint: {} Hz", reg, value), // 0.01Hz
+        135 => format!("Hold Register: {} UVFDerateEndPoint: {} Hz", reg, value), // 0.01Hz
+        136 => format!("Hold Register: {} OVFDerateRatio: {} ", reg, value), // %Pm/Hz Underfrequency load shedding slope
 
-        137 => format!("Register: {} SpecLoadCompensate: {} W", reg, value), // Maximum compensation amount for a specific load
-        138 => format!("Register: {} ChargePowerPercentCMD: {}", reg, value), // 0.1% Charging power percentage setting
-        139 => format!("Register: {} DischgPowerPercentCMD: {}", reg, value), // 0.1% Discharge power percentage setting
+        137 => format!("Hold Register: {} SpecLoadCompensate: {} W", reg, value), // Maximum compensation amount for a specific load
+        138 => format!("Hold Register: {} ChargePowerPercentCMD: {}", reg, value), // 0.1% Charging power percentage setting
+        139 => format!("Hold Register: {} DischgPowerPercentCMD: {}", reg, value), // 0.1% Discharge power percentage setting
 
-        140 => format!("Register: {} ACChgPowerCMD: {}", reg, value), // 0.1% ACChgPowerCMD
-        141 => format!("Register: {} ChgFirstPowerCMD: {}", reg, value), // 0.1% ChgFirstPowerCMD
+        140 => format!("Hold Register: {} ACChgPowerCMD: {}", reg, value), // 0.1% ACChgPowerCMD
+        141 => format!("Hold Register: {} ChgFirstPowerCMD: {}", reg, value), // 0.1% ChgFirstPowerCMD
 
-        142 => format!("Register: {} ForcedDischgPowerCMD: {}", reg, value), // 0.1% ForcedDischgPowerCMD
-        143 => format!("Register: {} ActivePowerPercentCMD: {}", reg, value), // 0.1% ActivePowerPercentCMD
+        142 => format!("Hold Register: {} ForcedDischgPowerCMD: {}", reg, value), // 0.1% ForcedDischgPowerCMD
+        143 => format!("Hold Register: {} ActivePowerPercentCMD: {}", reg, value), // 0.1% ActivePowerPercentCMD
 
-        144 => format!("Register: {} FloatChargeVolt: {} V", reg, value), // 0.1V
-        145 => format!("Register: {} OutputPrioConfig: {}", reg, value), // 0-bat first 1-PV first 2-AC first
+        144 => format!("Hold Register: {} FloatChargeVolt: {} V", reg, value), // 0.1V
+        145 => format!("Hold Register: {} OutputPrioConfig: {}", reg, value), // 0-bat first 1-PV first 2-AC first
 
-        146 => format!("Register: {} LineMode: {}", reg, value), // 0-APL (90-280V 20ms) 1- UPS (170-280V 10ms) 2- GEN (90-280V 20ms)
+        146 => format!("Hold Register: {} LineMode: {}", reg, value), // 0-APL (90-280V 20ms) 1- UPS (170-280V 10ms) 2- GEN (90-280V 20ms)
 
-        147 => format!("Register: {} Battery capacity: {} Ah", reg, value), // Ah
-        148 => format!("Register: {} Battery nominal Voltage: {} V", reg, value), // 0.1v units
+        147 => format!("Hold Register: {} Battery capacity: {} Ah", reg, value), // Ah
+        148 => format!("Hold Register: {} Battery nominal Voltage: {} V", reg, value), // 0.1v units
 
-        149 => format!("Register: {} EqualizationVolt: {} ", reg, value), // EqualizationVolt
-        150 => format!("Register: {} EqualizationInterval: {} ", reg, value), // Days (0-365) Equalization interval
-        151 => format!("Register: {} EqualizationTime: {} ", reg, value), // hour (0-24) Equalization time
+        149 => format!("Hold Register: {} EqualizationVolt: {} ", reg, value), // EqualizationVolt
+        150 => format!("Hold Register: {} EqualizationInterval: {} ", reg, value), // Days (0-365) Equalization interval
+        151 => format!("Hold Register: {} EqualizationTime: {} ", reg, value), // hour (0-24) Equalization time
 
         // AC load start time_hour + minute setting
         152 => { 
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF; 
-            format!("Register: {} - ACFirstStartHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstStartHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         }
         // AC load stop time_hour + minute setting
         153 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACFirstEndHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstEndHour_0: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         }
         154 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACFirstStartHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstStartHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         } 
         // AC load stop time_hour + minute setting
         155 => {
             let minute = (value >> 8) & 0xFF; 
             let hour = value & 0xFF;
-            format!("Register: {} - ACFirstEndHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstEndHour_1: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         }
         156 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACFirstStartHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstStartHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         } 
         // AC load stop time_hour + minute setting
         157 => {
             let minute = (value >> 8) & 0xFF; 
             let hour = value & 0xFF;
-            format!("Register: {} - ACFirstEndHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
+            format!("Hold Register: {} - ACFirstEndHour_2: {:02}:{:02} (HH:MM)", reg, hour, minute)
 
         }
-        158 => format!("Register: {} - ACChgStartVolt: {:.1} V", reg, (value as f64) / 10.0),
-        159 => format!("Register: {} - ACChgEndVolt: {:.1} V", reg, (value as f64) / 10.0),
+        158 => format!("Hold Register: {} - ACChgStartVolt: {:.1} V", reg, (value as f64) / 10.0),
+        159 => format!("Hold Register: {} - ACChgEndVolt: {:.1} V", reg, (value as f64) / 10.0),
 
         // AC Charge Settings (160-161)
-        160 => format!("Register: {} - AC Charge Start SOC: {}%", reg, value),
-        161 => format!("Register: {} - AC Charge End SOC: {}%", reg, value),
+        160 => format!("Hold Register: {} - AC Charge Start SOC: {}%", reg, value),
+        161 => format!("Hold Register: {} - AC Charge End SOC: {}%", reg, value),
 
         // Battery Warning Settings (162-169)
-        162 => format!("Register: {} - Battery Warning Voltage: {:.1} V", reg, (value as f64) / 10.0),
-        163 => format!("Register: {} - Battery Warning Recovery Voltage: {:.1} V", reg, (value as f64) / 10.0),
-        164 => format!("Battery Warning SOC: {}%", value),
-        165 => format!("Battery Warning Recovery SOC: {}%", value),
-        166 => format!("Battery Low to Utility Voltage: {:.1} V", (value as f64) / 10.0),
-        167 => format!("Battery Low to Utility SOC: {}%", value),
-        168 => format!("AC Charge Battery Current: {:.1} A", (value as f64) / 10.0),
-        169 => format!("On Grid EOD Voltage: {:.1} V", (value as f64) / 10.0),
+        162 => format!("Hold Register: {} - Battery Warning Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        163 => format!("Hold Register: {} - Battery Warning Recovery Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        164 => format!("Hold Register: {} - Battery Warning SOC: {}%", reg, value),
+        165 => format!("Hold Register: {} - Battery Warning Recovery SOC: {}%", reg, value),
+        166 => format!("Hold Register: {} - Battery Low to Utility Voltage: {:.1} V", reg, (value as f64) / 10.0),
+        167 => format!("Hold Register: {} - Battery Low to Utility SOC: {}%", reg, value),
+        168 => format!("Hold Register: {} - AC Charge Battery Current: {:.1} A", reg, (value as f64) / 10.0),
+        169 => format!("Hold Register: {} - On Grid EOD Voltage: {:.1} V", reg, (value as f64) / 10.0),
 
         // AutoTest Parameters (170-175)
-        170 => format!("AutoTest Command: {}", value),
+        170 => format!("Hold Register: {} - AutoTest Command: {}", reg, value),
         171 => {
             let status = (value >> 0) & 0xF;
             let step = (value >> 4) & 0xF;
@@ -456,16 +456,16 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         }
         172 => {
             let value_f = (value as f64) * if value & 0x8000 != 0 { -0.1 } else { 0.1 };
-            format!("AutoTest Limit: {:.1} {}", value_f,
+            format!("Hold Register: {} - AutoTest Limit: {:.1} {}", reg, value_f,
                 if (reg >= 171 && reg <= 172) || (reg >= 175 && reg <= 176) { "V" } else { "Hz" })
         }
-        173 => format!("AutoTest Default Time: {} ms", value),
+        173 => format!("Hold Register: {} - AutoTest Default Time: {} ms", reg, value),
         174 => {
             let value_f = (value as f64) * if value & 0x8000 != 0 { -0.1 } else { 0.1 };
-            format!("AutoTest Trip Value: {:.1} {}", value_f,
+            format!("Hold Register: {} - AutoTest Trip Value: {:.1} {}", reg, value_f,
                 if (reg >= 171 && reg <= 172) || (reg >= 175 && reg <= 176) { "V" } else { "Hz" })
         }
-        175 => format!("AutoTest Trip Time: {} ms", value),
+        175 => format!("Hold Register: {} - AutoTest Trip Time: {} ms", reg, value),
 
         // Default case for unknown registers
         _ => format!("Unknown hold register {}: {}", reg, value),
