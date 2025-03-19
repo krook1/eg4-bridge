@@ -1,5 +1,8 @@
 use crate::prelude::*;
 use crate::coordinator::commands::time_register_ops;
+use crate::coordinator::commands::set_hold::SetHold;
+use crate::coordinator::commands::write_param::WriteParam;
+use crate::coordinator::commands::time_register_ops::SetTimeRegister;
 
 pub struct WriteInverter {
     channels: Channels,
@@ -15,46 +18,46 @@ impl WriteInverter {
     }
 
     pub async fn set_ac_charge_rate(&self, value: u16) -> Result<()> {
-        self.set_hold(0x0102, value).await
+        self.set_hold(0x0102_u16, value).await
     }
 
     pub async fn set_ac_charge_soc_limit(&self, value: u16) -> Result<()> {
-        self.set_hold(0x0103, value).await
+        self.set_hold(0x0103_u16, value).await
     }
 
     pub async fn set_ac_charge_time(&self, config: ConfigWrapper, values: [u8; 4]) -> Result<()> {
-        self.set_time_register(config, time_register_ops::Action::AcCharge, values).await
+        self.set_time_register(config, time_register_ops::Action::AcCharge(0), values).await
     }
 
     pub async fn set_ac_first_time(&self, config: ConfigWrapper, values: [u8; 4]) -> Result<()> {
-        self.set_time_register(config, time_register_ops::Action::AcFirst, values).await
+        self.set_time_register(config, time_register_ops::Action::AcFirst(0), values).await
     }
 
     pub async fn set_charge_priority_time(&self, config: ConfigWrapper, values: [u8; 4]) -> Result<()> {
-        self.set_time_register(config, time_register_ops::Action::ChargePriority, values).await
+        self.set_time_register(config, time_register_ops::Action::ChargePriority(0), values).await
     }
 
     pub async fn set_charge_rate(&self, value: u16) -> Result<()> {
-        self.set_hold(0x0100, value).await
+        self.set_hold(0x0100_u16, value).await
     }
 
     pub async fn set_discharge_cutoff_soc_limit(&self, value: u16) -> Result<()> {
-        self.set_hold(0x0104, value).await
+        self.set_hold(0x0104_u16, value).await
     }
 
     pub async fn set_discharge_rate(&self, value: u16) -> Result<()> {
-        self.set_hold(0x0101, value).await
+        self.set_hold(0x0101_u16, value).await
     }
 
     pub async fn set_forced_discharge_time(&self, config: ConfigWrapper, values: [u8; 4]) -> Result<()> {
-        self.set_time_register(config, time_register_ops::Action::ForcedDischarge, values).await
+        self.set_time_register(config, time_register_ops::Action::ForcedDischarge(0), values).await
     }
 
     pub async fn set_hold<U>(&self, register: U, value: u16) -> Result<()>
     where
         U: Into<u16>,
     {
-        commands::set_hold::SetHold::new(
+        SetHold::new(
             self.channels.clone(),
             self.inverter.clone(),
             register,
@@ -69,7 +72,7 @@ impl WriteInverter {
     where
         U: Into<u16>,
     {
-        commands::write_param::WriteParam::new(
+        WriteParam::new(
             self.channels.clone(),
             self.inverter.clone(),
             register,
@@ -86,7 +89,7 @@ impl WriteInverter {
         action: time_register_ops::Action,
         values: [u8; 4],
     ) -> Result<()> {
-        commands::time_register_ops::SetTimeRegister::new(
+        SetTimeRegister::new(
             self.channels.clone(),
             self.inverter.clone(),
             config,

@@ -18,6 +18,8 @@ pub struct Config {
 
     #[serde(default = "Config::default_loglevel")]
     pub loglevel: String,
+
+    pub read_only: bool,
 }
 
 // Inverter {{{
@@ -321,6 +323,10 @@ impl ConfigWrapper {
 
     pub fn loglevel(&self) -> String {
         self.config.lock().unwrap().loglevel.clone()
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.config.lock().unwrap().read_only
     }
 }
 

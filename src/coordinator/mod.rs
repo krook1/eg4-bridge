@@ -1,6 +1,9 @@
 pub mod commands;
 
 use crate::prelude::*;
+use crate::coordinator::commands::time_register_ops::Action;
+use crate::lxp::packet::{Register, RegisterBit};
+use crate::command::Command;
 
 use lxp::{
     packet::{DeviceFunction, TranslatedData, Packet},
@@ -212,122 +215,146 @@ impl Coordinator {
     }
 
     async fn process_command(&self, command: Command) -> Result<()> {
-        let inverter = self.config.inverter_with_host(&command.inverter)?;
+        let inverter = match &command {
+            Command::ChargeRate(inv, _) |
+            Command::DischargeRate(inv, _) |
+            Command::AcChargeRate(inv, _) |
+            Command::AcChargeSocLimit(inv, _) |
+            Command::DischargeCutoffSocLimit(inv, _) |
+            Command::SetHold(inv, _, _) |
+            Command::WriteParam(inv, _, _) |
+            Command::SetAcChargeTime(inv, _, _) |
+            Command::SetAcFirstTime(inv, _, _) |
+            Command::SetChargePriorityTime(inv, _, _) |
+            Command::SetForcedDischargeTime(inv, _, _) |
+            Command::ReadInputs(inv, _) |
+            Command::ReadInput(inv, _, _) |
+            Command::ReadHold(inv, _, _) |
+            Command::ReadParam(inv, _) |
+            Command::ReadAcChargeTime(inv, _) |
+            Command::ReadAcFirstTime(inv, _) |
+            Command::ReadChargePriorityTime(inv, _) |
+            Command::ReadForcedDischargeTime(inv, _) |
+            Command::AcCharge(inv, _) |
+            Command::ChargePriority(inv, _) |
+            Command::ForcedDischarge(inv, _) => inv
+        };
+
         let write_inverter = commands::write_inverter::WriteInverter::new(self.channels.clone(), inverter.clone());
 
         match command {
-            Command::ChargeRate(value) => {
+            Command::ChargeRate(_, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring charge rate command");
                     return Ok(());
                 }
                 write_inverter.set_charge_rate(value).await?;
             }
-            Command::DischargeRate(value) => {
+            Command::DischargeRate(_, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring discharge rate command");
                     return Ok(());
                 }
                 write_inverter.set_discharge_rate(value).await?;
             }
-            Command::AcChargeRate(value) => {
+            Command::AcChargeRate(_, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring AC charge rate command");
                     return Ok(());
                 }
                 write_inverter.set_ac_charge_rate(value).await?;
             }
-            Command::AcChargeSocLimit(value) => {
+            Command::AcChargeSocLimit(_, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring AC charge SOC limit command");
                     return Ok(());
                 }
                 write_inverter.set_ac_charge_soc_limit(value).await?;
             }
-            Command::DischargeCutoffSocLimit(value) => {
+            Command::DischargeCutoffSocLimit(_, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring discharge cutoff SOC limit command");
                     return Ok(());
                 }
                 write_inverter.set_discharge_cutoff_soc_limit(value).await?;
             }
-            Command::SetHold(register, value) => {
+            Command::SetHold(_, register, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring set hold command");
                     return Ok(());
                 }
                 write_inverter.set_hold(register, value).await?;
             }
-            Command::WriteParam(register, value) => {
+            Command::WriteParam(_, register, value) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring write param command");
                     return Ok(());
                 }
                 write_inverter.set_param(register, value).await?;
             }
-            Command::SetAcChargeTime(values) => {
+            Command::SetAcChargeTime(_, num, values) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring set AC charge time command");
                     return Ok(());
                 }
                 write_inverter.set_ac_charge_time(self.config.clone(), values).await?;
             }
-            Command::SetAcFirstTime(values) => {
+            Command::SetAcFirstTime(_, num, values) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring set AC first time command");
                     return Ok(());
                 }
                 write_inverter.set_ac_first_time(self.config.clone(), values).await?;
             }
-            Command::SetChargePriorityTime(values) => {
+            Command::SetChargePriorityTime(_, num, values) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring set charge priority time command");
                     return Ok(());
                 }
                 write_inverter.set_charge_priority_time(self.config.clone(), values).await?;
             }
-            Command::SetForcedDischargeTime(values) => {
+            Command::SetForcedDischargeTime(_, num, values) => {
                 if self.config.read_only() {
                     warn!("Read-only mode enabled, ignoring set forced discharge time command");
                     return Ok(());
                 }
                 write_inverter.set_forced_discharge_time(self.config.clone(), values).await?;
             }
-            Command::ReadInputs(inverter, 1) => {
+            Command::ReadInputs(_, 1) => {
                 self.read_inputs(inverter.clone(), 0_u16, inverter.register_block_size()).await?
             },
-            Command::ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
-            Command::ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, inverter.register_block_size()).await?,
-            Command::ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, inverter.register_block_size()).await?,
-            Command::ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, inverter.register_block_size()).await?,
-            Command::ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, 3) => self.read_inputs(inverter.clone(), 80_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, 4) => self.read_inputs(inverter.clone(), 120_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, 5) => self.read_inputs(inverter.clone(), 160_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
             Command::ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
-            Command::ReadInput(inverter, register, count) => {
+            Command::ReadInput(_, register, count) => {
                 self.read_inputs(inverter.clone(), register, count).await?
             },
-            Command::ReadHold(inverter, register, count) => {
+            Command::ReadHold(_, register, count) => {
                 self.read_hold(inverter.clone(), register, count).await?
             },
-            Command::ReadParam(inverter, register) => {
+            Command::ReadParam(_, register) => {
                 self.read_param(inverter.clone(), register).await?
             },
-            Command::ReadAcChargeTime(inverter, num) => {
+            Command::ReadAcChargeTime(_, num) => {
                 self.read_time_register(inverter.clone(), Action::AcCharge(num))
                     .await?
             },
-            Command::ReadAcFirstTime(inverter, num) => {
+            Command::ReadAcFirstTime(_, num) => {
                 self.read_time_register(inverter.clone(), Action::AcFirst(num))
                     .await?
             },
-            Command::ReadChargePriorityTime(inverter, num) => {
+            Command::ReadChargePriorityTime(_, num) => {
                 self.read_time_register(inverter.clone(), Action::ChargePriority(num))
                     .await?
             },
-            Command::ReadForcedDischargeTime(inverter, num) => {
+            Command::ReadForcedDischargeTime(_, num) => {
                 self.read_time_register(inverter.clone(), Action::ForcedDischarge(num))
                     .await?
             },
-            Command::AcCharge(inverter, enable) => {
+            Command::AcCharge(_, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
@@ -336,7 +363,7 @@ impl Coordinator {
                 )
                 .await?
             },
-            Command::ChargePriority(inverter, enable) => {
+            Command::ChargePriority(_, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
@@ -345,7 +372,7 @@ impl Coordinator {
                 )
                 .await?
             },
-            Command::ForcedDischarge(inverter, enable) => {
+            Command::ForcedDischarge(_, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
