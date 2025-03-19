@@ -364,10 +364,67 @@ impl ConfigWrapper {
 
 impl Config {
     pub fn new(file: String) -> Result<Self> {
+        info!("Reading configuration from {}", file);
         let content = std::fs::read_to_string(&file)
             .map_err(|err| anyhow!("error reading {}: {}", file, err))?;
 
         let config: Self = serde_yaml::from_str(&content)?;
+        
+        // Log configuration details
+        info!("Configuration loaded successfully:");
+        info!("  Inverters: {} configured, {} enabled", 
+            config.inverters.len(),
+            config.inverters.iter().filter(|i| i.enabled).count()
+        );
+        for (i, inv) in config.inverters.iter().enumerate() {
+            info!("    Inverter[{}]:", i);
+            info!("      Enabled: {}", inv.enabled);
+            info!("      Host: {}", inv.host);
+            info!("      Port: {}", inv.port);
+            info!("      Serial: {}", inv.serial);
+            info!("      Datalog: {}", inv.datalog);
+            info!("      Read Timeout: {}s", inv.read_timeout.unwrap_or(900));
+            info!("      TCP NoDelay: {}", inv.use_tcp_nodelay.unwrap_or(true));
+            info!("      Register Block Size: {}", inv.register_block_size.unwrap_or(40));
+            info!("      Delay MS: {}ms", inv.delay_ms.unwrap_or(1000));
+            info!("      Read Only: {}", inv.read_only.unwrap_or(false));
+        }
+
+        info!("  MQTT: {}", if config.mqtt.enabled { "enabled" } else { "disabled" });
+        if config.mqtt.enabled {
+            info!("    Host: {}", config.mqtt.host);
+            info!("    Port: {}", config.mqtt.port);
+            info!("    Namespace: {}", config.mqtt.namespace);
+            info!("    Home Assistant: {}", if config.mqtt.homeassistant.enabled { "enabled" } else { "disabled" });
+        }
+
+        info!("  InfluxDB: {}", if config.influx.enabled { "enabled" } else { "disabled" });
+        if config.influx.enabled {
+            info!("    URL: {}", config.influx.url);
+            info!("    Database: {}", config.influx.database);
+        }
+
+        info!("  Databases: {} configured, {} enabled",
+            config.databases.len(),
+            config.databases.iter().filter(|d| d.enabled).count()
+        );
+        for (i, db) in config.databases.iter().enumerate() {
+            info!("    Database[{}]:", i);
+            info!("      Enabled: {}", db.enabled);
+            info!("      URL: {}", db.url);
+        }
+
+        info!("  Scheduler: {}", if config.scheduler.is_some() { "enabled" } else { "disabled" });
+        if let Some(scheduler) = &config.scheduler {
+            info!("    Enabled: {}", scheduler.enabled);
+            if let Some(cron) = &scheduler.timesync_cron {
+                info!("    Timesync Cron: {}", cron);
+            }
+        }
+
+        info!("  Global Read Only: {}", config.read_only);
+        info!("  Log Level: {}", config.loglevel);
+
         config.validate()?;
         Ok(config)
     }

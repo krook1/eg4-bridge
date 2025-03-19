@@ -41,9 +41,15 @@ impl Influx {
             Client::new(url, credentials)?
         };
 
-        futures::try_join!(self.sender(client))?;
+        // Spawn the sender task instead of awaiting it
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = self_clone.sender(client).await {
+                error!("InfluxDB sender task failed: {}", e);
+            }
+        });
 
-        info!("influx loop exiting");
+        info!("InfluxDB sender task spawned");
 
         Ok(())
     }
@@ -59,14 +65,16 @@ impl Influx {
         info!("InfluxDB sender started");
 
         loop {
+            info!("InfluxDB sender waiting for data...");
             let mut line = LineBuilder::new(INPUTS_MEASUREMENT);
 
-            match receiver.recv().await? {
-                Shutdown => {
+            match receiver.recv().await {
+                Ok(Shutdown) => {
                     info!("InfluxDB sender received shutdown signal");
                     break;
                 }
-                InputData(data) => {
+                Ok(InputData(data)) => {
+                    info!("InfluxDB sender received input data");
                     trace!("InfluxDB processing input data: {:?}", data);
                     for (key, value) in data.as_object().ok_or_else(|| anyhow!("Invalid data format"))? {
                         let key = key.to_string();
@@ -105,7 +113,7 @@ impl Influx {
                     while retry_count < 3 {
                         match client.send(&self.database(), &lines).await {
                             Ok(_) => {
-                                trace!("Successfully sent data to InfluxDB");
+                                info!("Successfully sent data to InfluxDB");
                                 break;
                             }
                             Err(err) => {
@@ -118,6 +126,9 @@ impl Influx {
                     if retry_count == 3 {
                         error!("Failed to send data to InfluxDB after 3 attempts");
                     }
+                }
+                Err(e) => {
+                    error!("Error receiving from InfluxDB channel: {}", e);
                 }
             }
         }

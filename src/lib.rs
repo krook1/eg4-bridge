@@ -64,6 +64,7 @@ impl Components {
 
 pub async fn app() -> Result<()> {
     let options = Options::new();
+    info!("Starting lxp-bridge {} with config file: {}", CARGO_PKG_VERSION, options.config_file);
 
     let config = ConfigWrapper::new(options.config_file).unwrap_or_else(|err| {
         // no logging available yet, so eprintln! will have to do
@@ -87,26 +88,41 @@ pub async fn app() -> Result<()> {
 
     info!("lxp-bridge {} starting", CARGO_PKG_VERSION);
 
+    info!("Initializing channels...");
     let channels = Channels::new();
 
     // Initialize components in a specific order
+    info!("Initializing components...");
+    info!("  Creating RegisterCache...");
     let register_cache = RegisterCache::new(channels.clone());
+    
+    info!("  Creating Coordinator...");
     let coordinator = Coordinator::new(config.clone(), channels.clone());
+    
+    info!("  Creating Scheduler...");
     let scheduler = Scheduler::new(config.clone(), channels.clone());
+    
+    info!("  Creating MQTT client...");
     let mqtt = Mqtt::new(config.clone(), channels.clone());
+    
+    info!("  Creating InfluxDB client...");
     let influx = Influx::new(config.clone(), channels.clone());
 
+    info!("  Creating Inverters...");
     let inverters: Vec<_> = config
         .enabled_inverters()
         .into_iter()
         .map(|inverter| Inverter::new(config.clone(), &inverter, channels.clone()))
         .collect();
+    info!("    Created {} inverter instances", inverters.len());
 
+    info!("  Creating Databases...");
     let databases: Vec<_> = config
         .enabled_databases()
         .into_iter()
         .map(|database| Database::new(database, channels.clone()))
         .collect();
+    info!("    Created {} database instances", databases.len());
 
     // Store components that need to be stopped
     let components = Components {
@@ -130,29 +146,42 @@ pub async fn app() -> Result<()> {
     });
 
     // Start components in sequence to ensure proper initialization
-    info!("Starting components...");
+    info!("Starting components in sequence...");
     
     // Start databases first
+    info!("Starting databases...");
     if let Err(e) = start_databases(databases.clone()).await {
         error!("Failed to start databases: {}", e);
         components.stop();
         return Err(e);
     }
+    info!("Databases started successfully");
+
+    // Start InfluxDB before inverters
+    info!("Starting InfluxDB...");
+    if let Err(e) = influx.start().await {
+        error!("Failed to start InfluxDB: {}", e);
+        components.stop();
+        return Err(e);
+    }
+    info!("InfluxDB started successfully");
 
     // Start inverters
+    info!("Starting inverters...");
     if let Err(e) = start_inverters(inverters.clone()).await {
         error!("Failed to start inverters: {}", e);
         components.stop();
         return Err(e);
     }
+    info!("Inverters started successfully");
 
     // Start remaining components
+    info!("Starting remaining components (scheduler, MQTT, register cache, coordinator)...");
     let app_result = tokio::select! {
         res = async {
             futures::try_join!(
                 scheduler.start(),
                 mqtt.start(),
-                influx.start(),
                 register_cache.start(),
                 coordinator.start(),
             )
@@ -183,6 +212,15 @@ async fn start_databases(databases: Vec<Database>) -> Result<()> {
 }
 
 async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
+    for inverter in &inverters {
+        let config = inverter.config();
+        info!(
+            "Starting inverter - Serial: {}, Datalog: {}, Host: {}",
+            config.serial(),
+            config.datalog(),
+            config.host()
+        );
+    }
     let futures = inverters.iter().map(|i| i.start());
     futures::future::join_all(futures).await;
     Ok(())
