@@ -1,6 +1,5 @@
-
 /// Parse and decode an input register value according to Table 7 of the protocol specification
-pub fn parse_input_register(reg: u16, value: u16) -> String {
+pub fn parse_input_register(reg: u16, value: u32) -> String {
     match reg {
         // System Status (0-39)
         0 => format!("Register {} - Inverter Status: ({} {:#b}) - {}", reg, value, value, match value {
@@ -24,7 +23,52 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
         3 => format!("Register {} - PV3 Voltage (Vpv3): {:.1} V", reg, (value as f64) / 10.0),
         4 => format!("Register {} - Battery Voltage (Vbat): {:.1} V", reg, (value as f64) / 10.0),
         5 => format!("Register {} - State of Charge (SOC): {}%", reg, value.min(100)),
-        6 => format!("Register {} - Internal Fault: {:#06x} (See Internal DTC Definitions)", reg, value),
+        6 => {
+            let mut faults = Vec::new();
+            if value & (1 << 0) != 0 { faults.push("Internal communication fault 1 - Battery communication failure"); }
+            if value & (1 << 1) != 0 { faults.push("Model fault - AFCI communication failure"); }
+            if value & (1 << 2) != 0 { faults.push("rsvd - AFCI High"); }
+            if value & (1 << 3) != 0 { faults.push("rsvd - Meter communication failure"); }
+            if value & (1 << 4) != 0 { faults.push("rsvd - Both charge and discharge forbidden by battery"); }
+            if value & (1 << 5) != 0 { faults.push("rsvd - Auto test failed"); }
+            if value & (1 << 6) != 0 { faults.push("rsvd - rsvd"); }
+            if value & (1 << 7) != 0 { faults.push("rsvd - LCD communication failure"); }
+            if value & (1 << 8) != 0 { faults.push("Paralleling CANcommunication lost - FW version mismatch"); }
+            if value & (1 << 9) != 0 { faults.push("Master unit lost in paralleling system - Fan stuck"); }
+            if value & (1 << 10) != 0 { faults.push("Multiple master units in paralleling system - rsvd"); }
+            if value & (1 << 11) != 0 { faults.push("AC input inconsistent in paralleling system - Parallel number out of range"); }
+            if value & (1 << 12) != 0 { faults.push("UPS short - rsvd"); }
+            if value & (1 << 13) != 0 { faults.push("Reverse current on UPS output - rsvd"); }
+            if value & (1 << 14) != 0 { faults.push("BUS short - rsvd"); }
+            if value & (1 << 15) != 0 { faults.push("Grid phases inconsistent in 3phase paralleling system - Battery reverse connection"); }
+            if value & (1 << 16) != 0 { faults.push("Relay Check Fault - Grid power outage"); }
+            if value & (1 << 17) != 0 { faults.push("Internal communication fault 2 - Grid voltage out of range"); }
+            if value & (1 << 18) != 0 { faults.push("Internal communication fault 3 - Grid frequency out of range"); }
+            if value & (1 << 19) != 0 { faults.push("BUS Voltage high - rsvd"); }
+            if value & (1 << 20) != 0 { faults.push("EPS connection fault - PV insulation low"); }
+            if value & (1 << 21) != 0 { faults.push("PV Voltage high - Leakage current high"); }
+            if value & (1 << 22) != 0 { faults.push("Over current protection - DCI high"); }
+            if value & (1 << 23) != 0 { faults.push("Neutral fault - PV short"); }
+            if value & (1 << 24) != 0 { faults.push("PV short - rsvd"); }
+            if value & (1 << 25) != 0 { faults.push("Radiator temperature out of range - Battery voltage high"); }
+            if value & (1 << 26) != 0 { faults.push("Internal Fault - Battery voltage low"); }
+            if value & (1 << 27) != 0 { faults.push("Sample inconsistent between Main CPU and redundant CPU - Battery open circuit"); }
+            if value & (1 << 28) != 0 { faults.push("rsvd - EPS overload"); }
+            if value & (1 << 29) != 0 { faults.push("rsvd - EPS voltage high"); }
+            if value & (1 << 30) != 0 { faults.push("rsvd - Meter reverse connection"); }
+            if value & (1 << 31) != 0 { faults.push("Internal communication fault 4 - DCV high"); }
+
+            let fault_list = if faults.is_empty() { 
+                "No faults".to_string() 
+            } else { 
+                faults.join(", ") 
+            };
+            format!("Register {} - Internal Fault: {:#06x} (See Internal DTC Definitions) - {}", 
+                reg, 
+                value,
+                fault_list
+            )
+        },
         7 => format!("Register {} - PV1 Power (Ppv1): {} W", reg, value),
         8 => format!("Register {} - PV2 Power (Ppv2): {} W", reg, value),
         9 => format!("Register {} - PV3 Power (Ppv3): {} W", reg, value),

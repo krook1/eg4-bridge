@@ -522,7 +522,7 @@ impl Coordinator {
                         }
                         
                         // Parse and log the register value using the new module
-                        info!("  {}", parse_input::parse_input_register(*reg, *value));
+                        info!("  {}", parse_input::parse_input_register(*reg, (*value).into()));
                     }
                     
                     if let Err(e) = self.publish_input_message(register, pairs, inverter).await {

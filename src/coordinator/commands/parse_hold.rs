@@ -175,32 +175,32 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         68 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_0 AC charging start time_hour setting: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgStart_0 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         69 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_0 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         70 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_1 AC charging start time_hour setting: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgStart_1 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         71 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_1 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         72 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgStart_2 AC charging start time_hour setting: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgStart_2 AC charging start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         73 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ACChgEndTime_2 AC charging end time_hour: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         // Charging Priority Settings (74-79)
         74 => format!("Register: {} - ChgFirstPowerCMD - Charging Priority Percentage: {}%", reg, value),
@@ -208,32 +208,32 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         76 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_0 - Charging Priority Start Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         77 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_0 - Charging Priority End Time: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         78 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_1 - Charging Priority Start Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         79 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_1 - Charging Priority End Time 1: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         80 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstStart_2 - Charging Priority Start Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         81 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ChgFirstEnd_2 Charging Priority End Time 2: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
 
         // System Type and Battery Settings (80-82)
@@ -250,13 +250,12 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         84 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ForcedDischgStart_0 - Forced discharge start
-time_hour setting: {:02}:{:02} (Hour: 0-23, Minute: 0-59)", reg, hour, minute)
+            format!("Register: {} - ForcedDischgStart_0 - Forced discharge start time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
         85 => {
             let minute = (value >> 8) & 0xFF;
             let hour = value & 0xFF;
-            format!("Register: {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (HH:MM 00-23:00-59)", reg, hour, minute)
+            format!("Register: {} - ForcedDischgStart_0 - Forced discharge end time_hour setting: {:02}:{:02} (HH:MM)", reg, hour, minute)
         },
 
 
