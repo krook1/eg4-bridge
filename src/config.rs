@@ -20,6 +20,9 @@ pub struct Config {
     pub loglevel: String,
 
     pub read_only: bool,
+
+    #[serde(default = "Config::default_homeassistant_enabled")]
+    pub homeassistant_enabled: bool,
 }
 
 // Inverter {{{
@@ -360,6 +363,10 @@ impl ConfigWrapper {
         
         Err(anyhow::anyhow!("Inverter with datalog {} not found", old_datalog))
     }
+
+    pub fn homeassistant_enabled(&self) -> bool {
+        self.config.lock().unwrap().homeassistant_enabled
+    }
 }
 
 impl Config {
@@ -512,6 +519,10 @@ impl Config {
 
     fn default_loglevel() -> String {
         "debug".to_string()
+    }
+
+    fn default_homeassistant_enabled() -> bool {
+        false
     }
 }
 

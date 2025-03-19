@@ -447,8 +447,8 @@ impl Mqtt {
                 )
                 .await?;
 
-            if self.config.mqtt().homeassistant().enabled() {
-                let ha = home_assistant::Config::new(&inverter, &self.config.mqtt());
+            if self.config.homeassistant_enabled() && self.config.mqtt().homeassistant().enabled() {
+                let ha = home_assistant::Config::new(&inverter, &self.config.mqtt(), &self.config);
                 for msg in ha.all()?.into_iter() {
                     let _ = client
                         .publish(&msg.topic, QoS::AtLeastOnce, msg.retain, msg.payload)

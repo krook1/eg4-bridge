@@ -49,6 +49,7 @@ pub struct Device {
 pub struct Config {
     inverter: config::Inverter,
     mqtt_config: config::Mqtt,
+    global_config: config::ConfigWrapper,
 }
 
 // https://www.home-assistant.io/integrations/sensor.mqtt/
@@ -128,10 +129,11 @@ pub struct Text {
 }
 
 impl Config {
-    pub fn new(inverter: &config::Inverter, mqtt_config: &config::Mqtt) -> Self {
+    pub fn new(inverter: &config::Inverter, mqtt_config: &config::Mqtt, global_config: &config::ConfigWrapper) -> Self {
         Self {
             inverter: inverter.clone(),
             mqtt_config: mqtt_config.clone(),
+            global_config: global_config.clone(),
         }
     }
 
@@ -657,6 +659,10 @@ impl Config {
     }
 
     pub fn all(&self) -> Result<Vec<mqtt::Message>> {
+        if !self.global_config.homeassistant_enabled() {
+            return Ok(Vec::new());
+        }
+
         let mut r = vec![
             self.switch("ac_charge", "AC Charge")?,
             self.switch("charge_priority", "Charge Priority")?,

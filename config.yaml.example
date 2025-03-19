@@ -1,4 +1,5 @@
 loglevel: info
+homeassistant_enabled: false
 
 inverters:
 - enabled: true
