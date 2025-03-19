@@ -26,7 +26,7 @@ impl WriteInverter {
     /// This check is only used for write operations (set_* functions).
     /// Read operations should not use this check.
     fn check_read_only(&self) -> Result<()> {
-        if self.config.read_only || self.inverter.read_only.unwrap_or(false) {
+        if self.config.read_only() || self.inverter.read_only.unwrap_or(false) {
             Err(anyhow::anyhow!("Write operations are disabled in read-only mode"))
         } else {
             Ok(())

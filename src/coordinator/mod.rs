@@ -214,45 +214,97 @@ impl Coordinator {
         }
     }
 
+    /// Process a command received from MQTT or other sources
+    /// This function routes commands to appropriate read/write handlers
     async fn process_command(&self, command: Command) -> Result<()> {
-        let (inverter, value) = match command {
-            Command::ChargeRate(inverter, value) => (inverter, value),
-            Command::DischargeRate(inverter, value) => (inverter, value),
-            Command::AcChargeRate(inverter, value) => (inverter, value),
-            Command::AcChargeSocLimit(inverter, value) => (inverter, value),
-            Command::DischargeCutoffSocLimit(inverter, value) => (inverter, value),
-            Command::SetHold(inverter, value) => (inverter, value),
-            Command::SetParam(inverter, value) => (inverter, value),
-            Command::AcChargeTime(inverter, value) => (inverter, value),
-            Command::AcFirstTime(inverter, value) => (inverter, value),
-            Command::ChargePriorityTime(inverter, value) => (inverter, value),
-            Command::ForcedDischargeTime(inverter, value) => (inverter, value),
+        let inverter = match &command {
+            Command::ChargeRate(inv, _) |
+            Command::DischargeRate(inv, _) |
+            Command::AcChargeRate(inv, _) |
+            Command::AcChargeSocLimit(inv, _) |
+            Command::DischargeCutoffSocLimit(inv, _) |
+            Command::SetHold(inv, _, _) |
+            Command::WriteParam(inv, _, _) |
+            Command::SetAcChargeTime(inv, _, _) |
+            Command::SetAcFirstTime(inv, _, _) |
+            Command::SetChargePriorityTime(inv, _, _) |
+            Command::SetForcedDischargeTime(inv, _, _) |
+            Command::ReadInputs(inv, _) |
+            Command::ReadInput(inv, _, _) |
+            Command::ReadHold(inv, _, _) |
+            Command::ReadParam(inv, _) |
+            Command::ReadAcChargeTime(inv, _) |
+            Command::ReadAcFirstTime(inv, _) |
+            Command::ReadChargePriorityTime(inv, _) |
+            Command::ReadForcedDischargeTime(inv, _) |
+            Command::AcCharge(inv, _) |
+            Command::ChargePriority(inv, _) |
+            Command::ForcedDischarge(inv, _) => inv.clone(),
         };
 
         let write_inverter = commands::write_inverter::WriteInverter::new(
             self.channels.clone(),
-            inverter,
+            inverter.clone(),
             self.config.clone(),
         );
 
         match command {
+            // Write operations - these are blocked by read_only mode
             Command::ChargeRate(_, value) => write_inverter.set_charge_rate(value).await,
             Command::DischargeRate(_, value) => write_inverter.set_discharge_rate(value).await,
             Command::AcChargeRate(_, value) => write_inverter.set_ac_charge_rate(value).await,
             Command::AcChargeSocLimit(_, value) => write_inverter.set_ac_charge_soc_limit(value).await,
             Command::DischargeCutoffSocLimit(_, value) => write_inverter.set_discharge_cutoff_soc_limit(value).await,
-            Command::SetHold(_, value) => write_inverter.set_hold(value.0, value.1).await,
-            Command::SetParam(_, value) => write_inverter.set_param(value.0, value.1).await,
-            Command::AcChargeTime(_, value) => write_inverter.set_ac_charge_time(value).await,
-            Command::AcFirstTime(_, value) => write_inverter.set_ac_first_time(value).await,
-            Command::ChargePriorityTime(_, value) => write_inverter.set_charge_priority_time(value).await,
-            Command::ForcedDischargeTime(_, value) => write_inverter.set_forced_discharge_time(value).await,
+            Command::SetHold(_, register, value) => write_inverter.set_hold(register, value).await,
+            Command::WriteParam(_, register, value) => write_inverter.set_param(register, value).await,
+            Command::SetAcChargeTime(_, _, values) => write_inverter.set_ac_charge_time(values).await,
+            Command::SetAcFirstTime(_, _, values) => write_inverter.set_ac_first_time(values).await,
+            Command::SetChargePriorityTime(_, _, values) => write_inverter.set_charge_priority_time(values).await,
+            Command::SetForcedDischargeTime(_, _, values) => write_inverter.set_forced_discharge_time(values).await,
+            
+            // Read operations - these are always allowed regardless of read_only mode
+            Command::ReadInputs(_, block) => self.read_input_block(&inverter, block * 40, inverter.register_block_size()).await,
+            Command::ReadInput(_, register, count) => self.read_input_registers(&inverter, register, count).await,
+            Command::ReadHold(_, register, count) => self.read_hold_registers(&inverter, register, count).await,
+            Command::ReadParam(_, register) => self.read_param_register(&inverter, register).await,
+            Command::ReadAcChargeTime(_, num) => self.read_ac_charge_time(&inverter, num).await,
+            Command::ReadAcFirstTime(_, num) => self.read_ac_first_time(&inverter, num).await,
+            Command::ReadChargePriorityTime(_, num) => self.read_charge_priority_time(&inverter, num).await,
+            Command::ReadForcedDischargeTime(_, num) => self.read_forced_discharge_time(&inverter, num).await,
+            
+            // Enable/Disable operations - these are blocked by read_only mode
+            Command::AcCharge(_, enable) => {
+                self.update_hold(
+                    inverter,
+                    Register::Register21,
+                    RegisterBit::AcChargeEnable,
+                    enable,
+                ).await
+            },
+            Command::ChargePriority(_, enable) => {
+                self.update_hold(
+                    inverter,
+                    Register::Register21,
+                    RegisterBit::ChargePriorityEnable,
+                    enable,
+                ).await
+            },
+            Command::ForcedDischarge(_, enable) => {
+                self.update_hold(
+                    inverter,
+                    Register::Register21,
+                    RegisterBit::ForcedDischargeEnable,
+                    enable,
+                ).await
+            },
         }
     }
 
-    async fn read_inputs<U>(
+    /// Read a block of input registers from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_input_block<U>(
         &self,
-        inverter: config::Inverter,
+        inverter: &config::Inverter,
         register: U,
         count: u16,
     ) -> Result<()>
@@ -268,7 +320,24 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn read_hold<U>(&self, inverter: config::Inverter, register: U, count: u16) -> Result<()>
+    /// Read specific input registers from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_input_registers<U>(&self, inverter: &config::Inverter, register: U, count: u16) -> Result<()>
+    where
+        U: Into<u16>,
+    {
+        commands::read_inputs::ReadInputs::new(self.channels.clone(), inverter.clone(), register, count)
+        .run()
+        .await?;
+
+        // Add delay after read operation
+        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        Ok(())
+    }
+
+    /// Read holding registers from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_hold_registers<U>(&self, inverter: &config::Inverter, register: U, count: u16) -> Result<()>
     where
         U: Into<u16>,
     {
@@ -281,7 +350,9 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn read_param<U>(&self, inverter: config::Inverter, register: U) -> Result<()>
+    /// Read a parameter register from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_param_register<U>(&self, inverter: &config::Inverter, register: U) -> Result<()>
     where
         U: Into<u16>,
     {
@@ -294,9 +365,51 @@ impl Coordinator {
         Ok(())
     }
 
+    /// Read AC charge time settings from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_ac_charge_time(
+        &self,
+        inverter: &config::Inverter,
+        num: u16,
+    ) -> Result<()> {
+        self.read_time_register(inverter, Action::AcCharge(num)).await
+    }
+
+    /// Read AC first time settings from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_ac_first_time(
+        &self,
+        inverter: &config::Inverter,
+        num: u16,
+    ) -> Result<()> {
+        self.read_time_register(inverter, Action::AcFirst(num)).await
+    }
+
+    /// Read charge priority time settings from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_charge_priority_time(
+        &self,
+        inverter: &config::Inverter,
+        num: u16,
+    ) -> Result<()> {
+        self.read_time_register(inverter, Action::ChargePriority(num)).await
+    }
+
+    /// Read forced discharge time settings from the inverter
+    /// This operation is always allowed regardless of read_only mode
+    async fn read_forced_discharge_time(
+        &self,
+        inverter: &config::Inverter,
+        num: u16,
+    ) -> Result<()> {
+        self.read_time_register(inverter, Action::ForcedDischarge(num)).await
+    }
+
+    /// Internal helper to read time register settings
+    /// This operation is always allowed regardless of read_only mode
     async fn read_time_register(
         &self,
-        inverter: config::Inverter,
+        inverter: &config::Inverter,
         action: commands::time_register_ops::Action,
     ) -> Result<()> {
         commands::time_register_ops::ReadTimeRegister::new(
@@ -313,6 +426,8 @@ impl Coordinator {
         Ok(())
     }
 
+    /// Write a parameter to the inverter
+    /// This operation is blocked by read_only mode
     async fn write_param<U>(
         &self,
         inverter: config::Inverter,
@@ -334,6 +449,8 @@ impl Coordinator {
         Ok(())
     }
 
+    /// Write time register settings to the inverter
+    /// This operation is blocked by read_only mode
     async fn set_time_register(
         &self,
         inverter: config::Inverter,
@@ -351,6 +468,8 @@ impl Coordinator {
         .await
     }
 
+    /// Write a holding register to the inverter
+    /// This operation is blocked by read_only mode
     async fn set_hold<U>(&self, inverter: config::Inverter, register: U, value: u16) -> Result<()>
     where
         U: Into<u16>,
@@ -362,6 +481,8 @@ impl Coordinator {
         Ok(())
     }
 
+    /// Update a bit in a holding register
+    /// This operation is blocked by read_only mode
     async fn update_hold<U>(
         &self,
         inverter: config::Inverter,
@@ -403,49 +524,53 @@ impl Coordinator {
                 }
             }
 
-            // Validate serial number format
-            if let Some(serial) = td.inverter() {
-                if !serial.to_string().chars().all(|c| c.is_ascii_alphanumeric()) {
-                    warn!("Invalid serial number format: {}", serial);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.serial_mismatches += 1;
-                    }
-                    return Ok(());
-                }
-            }
-
             // Log TCP function for debugging
             debug!("Processing TCP function: {:?}", td.tcp_function());
 
             // Check if serial matches configured inverter
             if td.inverter() != Some(inverter.serial) {
                 warn!(
-                    "Serial mismatch - got {:?}, expected {}",
+                    "Serial mismatch detected - updating inverter configuration. Got {:?}, was {}",
                     td.inverter(),
                     inverter.serial
                 );
-                if let Ok(mut stats) = self.stats.lock() {
-                    stats.serial_mismatches += 1;
-                    
-                    // Track disconnection for this serial
-                    let count = stats.inverter_disconnections
-                        .entry(inverter.serial)
-                        .or_insert(0);
-                    *count += 1;
-                    
-                    // Store last message for debugging
-                    stats.last_messages.insert(
-                        inverter.serial,
-                        format!("Serial mismatch - got {:?}, expected {}", td.inverter(), inverter.serial)
-                    );
+                
+                // Update inverter configuration with new serial
+                if let Some(new_serial) = td.inverter() {
+                    info!("Updating inverter serial from {} to {}", inverter.serial, new_serial);
+                    if let Err(e) = self.config.update_inverter_serial(inverter.serial, new_serial) {
+                        error!("Failed to update inverter serial: {}", e);
+                    }
                 }
 
-                // Try to recover by requesting a new connection
-                if let Err(e) = self.channels.from_inverter.send(inverter::ChannelData::Disconnect(inverter.serial)) {
-                    error!("Failed to request disconnect after serial mismatch: {}", e);
+                if let Ok(mut stats) = self.stats.lock() {
+                    stats.serial_mismatches += 1;
+                    stats.last_messages.insert(
+                        inverter.serial,
+                        format!("Serial updated - was {}, now {:?}", inverter.serial, td.inverter())
+                    );
                 }
+            }
+
+            // Check if datalog matches configured inverter
+            if td.datalog() != inverter.datalog() {
+                warn!(
+                    "Datalog mismatch detected - updating inverter configuration. Got {}, was {}",
+                    td.datalog(),
+                    inverter.datalog()
+                );
                 
-                return Ok(());
+                info!("Updating inverter datalog from {} to {}", inverter.datalog(), td.datalog());
+                if let Err(e) = self.config.update_inverter_datalog(inverter.datalog(), td.datalog()) {
+                    error!("Failed to update inverter datalog: {}", e);
+                }
+
+                if let Ok(mut stats) = self.stats.lock() {
+                    stats.last_messages.insert(
+                        inverter.datalog(),
+                        format!("Datalog updated - was {}, now {}", inverter.datalog(), td.datalog())
+                    );
+                }
             }
 
             match td.device_function {
@@ -548,6 +673,7 @@ impl Coordinator {
         let mut receiver = self.channels.from_inverter.subscribe();
         let mut buffer_size = 0;
         const BUFFER_CLEAR_THRESHOLD: usize = 1024; // 1KB threshold for buffer clearing
+        const MAX_BUFFER_CLEAR_ATTEMPTS: u32 = 3; // Maximum number of buffer clear attempts
 
         while let Ok(message) = receiver.recv().await {
             match message {
@@ -555,11 +681,19 @@ impl Coordinator {
                     // Track buffer size
                     buffer_size += std::mem::size_of_val(&packet);
                     
-                    // Clear buffer if threshold exceeded
+                    // Clear buffer if threshold exceeded, but with a limit on attempts
                     if buffer_size >= BUFFER_CLEAR_THRESHOLD {
                         debug!("Clearing receiver buffer (size: {} bytes)", buffer_size);
-                        while let Ok(inverter::ChannelData::Packet(_)) = receiver.try_recv() {
-                            // Drain excess messages
+                        let mut clear_attempts = 0;
+                        while clear_attempts < MAX_BUFFER_CLEAR_ATTEMPTS {
+                            match receiver.try_recv() {
+                                Ok(inverter::ChannelData::Packet(_)) => {
+                                    clear_attempts += 1;
+                                    continue;
+                                }
+                                Ok(_) => break, // Non-packet message, stop clearing
+                                Err(_) => break, // No more messages, stop clearing
+                            }
                         }
                         buffer_size = 0;
                     }
@@ -568,24 +702,14 @@ impl Coordinator {
                     if let Packet::TranslatedData(ref td) = packet {
                         // Find the inverter for this packet
                         if let Some(inverter) = self.config.enabled_inverter_with_datalog(td.datalog()) {
-                            // Validate serial number format before proceeding
-                            if let Some(serial) = td.inverter() {
-                                if !serial.to_string().chars().all(|c| c.is_ascii_alphanumeric()) {
-                                    warn!("Invalid serial number format: {}", serial);
-                                    if let Ok(mut stats) = self.stats.lock() {
-                                        stats.serial_mismatches += 1;
-                                    }
-                                    continue;
-                                }
-                            }
-
-                            // Update packet stats after validation
+                            // Update packet stats before validation
                             if let Ok(mut stats) = self.stats.lock() {
                                 stats.packets_received += 1;
                                 stats.last_messages.insert(td.datalog(), format!("{:?}", packet));
                                 stats.translated_data_packets_received += 1;
                             }
 
+                            // Process the packet even if serial validation fails
                             if let Err(e) = self.process_inverter_packet(packet.clone(), &inverter).await {
                                 warn!("Failed to process packet: {}", e);
                             }
@@ -659,38 +783,38 @@ impl Coordinator {
         // Read all holding register blocks
         for start_register in (0..=240).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
-            self.read_hold(inverter.clone(), start_register as u16, block_size).await?;
+            self.read_hold_registers(&inverter, start_register as u16, block_size).await?;
         }
 
         // Read all input register blocks
         for start_register in (0..=200).step_by(block_size as usize) {
             self.increment_packets_sent(&packet);
-            self.read_inputs(inverter.clone(), start_register as u16, block_size).await?;
+            self.read_input_block(&inverter, start_register as u16, block_size).await?;
         }
 
         // Read time registers
         for num in &[1, 2, 3] {
             self.increment_packets_sent(&packet);
             self.read_time_register(
-                inverter.clone(),
+                &inverter,
                 commands::time_register_ops::Action::AcCharge(*num),
             ).await?;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
-                inverter.clone(),
+                &inverter,
                 commands::time_register_ops::Action::ChargePriority(*num),
             ).await?;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
-                inverter.clone(),
+                &inverter,
                 commands::time_register_ops::Action::ForcedDischarge(*num),
             ).await?;
 
             self.increment_packets_sent(&packet);
             self.read_time_register(
-                inverter.clone(),
+                &inverter,
                 commands::time_register_ops::Action::AcFirst(*num),
             ).await?;
         }

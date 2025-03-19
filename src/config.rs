@@ -328,6 +328,38 @@ impl ConfigWrapper {
     pub fn read_only(&self) -> bool {
         self.config.lock().unwrap().read_only
     }
+
+    /// Update an inverter's serial number at runtime
+    pub fn update_inverter_serial(&self, old_serial: Serial, new_serial: Serial) -> Result<()> {
+        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        
+        // Find and update the inverter
+        for inverter in &mut config.inverters {
+            if inverter.serial == old_serial {
+                info!("Updating inverter serial from {} to {}", old_serial, new_serial);
+                inverter.serial = new_serial;
+                return Ok(());
+            }
+        }
+        
+        Err(anyhow::anyhow!("Inverter with serial {} not found", old_serial))
+    }
+
+    /// Update an inverter's datalog value at runtime
+    pub fn update_inverter_datalog(&self, old_datalog: Serial, new_datalog: Serial) -> Result<()> {
+        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        
+        // Find and update the inverter
+        for inverter in &mut config.inverters {
+            if inverter.datalog == old_datalog {
+                info!("Updating inverter datalog from {} to {}", old_datalog, new_datalog);
+                inverter.datalog = new_datalog;
+                return Ok(());
+            }
+        }
+        
+        Err(anyhow::anyhow!("Inverter with datalog {} not found", old_datalog))
+    }
 }
 
 impl Config {
