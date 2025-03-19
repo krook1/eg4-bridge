@@ -5,11 +5,6 @@ use lxp::{
     packet::{DeviceFunction, TranslatedData},
 };
 
-use super::validation::validate_register_block_boundary;
-use super::read_hold::ReadHold;
-use tokio::time::sleep;
-use std::time::Duration;
-
 pub struct ReadInputs {
     channels: Channels,
     inverter: config::Inverter,
@@ -31,15 +26,12 @@ impl ReadInputs {
     }
 
     pub async fn run(&self) -> Result<Packet> {
-        // Validate block boundaries before proceeding
-        validate_register_block_boundary(self.register, self.count)?;
-
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog(),
             device_function: DeviceFunction::ReadInput,
             inverter: self.inverter.serial(),
             register: self.register,
-            values: self.count.to_le_bytes().to_vec(),
+            values: vec![self.count as u8, 0],
         });
 
         let mut receiver = self.channels.from_inverter.subscribe();
@@ -53,13 +45,7 @@ impl ReadInputs {
             bail!("send(to_inverter) failed - channel closed?");
         }
 
-        let result = receiver.wait_for_reply(&packet).await;
-
-        // Add delay after read operation
-        let delay_ms = self.inverter.delay_ms();
-        info!("Sleeping for {}ms after read input operation", delay_ms);
-        sleep(Duration::from_millis(delay_ms)).await;
-
-        result
+        let packet = receiver.wait_for_reply(&packet).await?;
+        Ok(packet)
     }
 }

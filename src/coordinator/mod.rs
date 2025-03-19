@@ -1,11 +1,17 @@
+pub mod commands;
+
 use crate::prelude::*;
 
-pub mod commands;
-use commands::parse_hold;
-use commands::parse_input;
+use lxp::{
+    packet::{DeviceFunction, TranslatedData, Packet},
+};
+
+use commands::{
+    parse_hold,
+    parse_input,
+};
 
 use std::sync::{Arc, Mutex};
-use lxp::packet::{DeviceFunction, ReadInput, TranslatedData, Packet, ReadInputAll, ReadInput1, ReadInput2, ReadInput3, ReadInput4, ReadInput5, ReadInput6};
 use lxp::inverter;
 
 // Sleep durations - keeping only the ones actively used
@@ -122,9 +128,22 @@ impl Coordinator {
 
     pub async fn start(&self) -> Result<()> {
         if self.config.mqtt().enabled() {
-        futures::try_join!(self.inverter_receiver(), self.mqtt_receiver())?;
+            tokio::select! {
+                res = self.inverter_receiver() => {
+                    if let Err(e) = res {
+                        error!("Inverter receiver error: {}", e);
+                    }
+                }
+                res = self.mqtt_receiver() => {
+                    if let Err(e) = res {
+                        error!("MQTT receiver error: {}", e);
+                    }
+                }
+            }
         } else {
-            self.inverter_receiver().await?;
+            if let Err(e) = self.inverter_receiver().await {
+                error!("Inverter receiver error: {}", e);
+            }
         }
 
         Ok(())
@@ -193,69 +212,122 @@ impl Coordinator {
     }
 
     async fn process_command(&self, command: Command) -> Result<()> {
-        use commands::time_register_ops::Action;
-        use lxp::packet::{Register, RegisterBit};
-        use Command::*;
+        let inverter = self.config.inverter_with_host(&command.inverter)?;
+        let write_inverter = commands::write_inverter::WriteInverter::new(self.channels.clone(), inverter.clone());
 
         match command {
-            // Process input registers in sequence
-            ReadInputs(inverter, 1) => {
+            Command::ChargeRate(value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring charge rate command");
+                    return Ok(());
+                }
+                write_inverter.set_charge_rate(value).await?;
+            }
+            Command::DischargeRate(value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring discharge rate command");
+                    return Ok(());
+                }
+                write_inverter.set_discharge_rate(value).await?;
+            }
+            Command::AcChargeRate(value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring AC charge rate command");
+                    return Ok(());
+                }
+                write_inverter.set_ac_charge_rate(value).await?;
+            }
+            Command::AcChargeSocLimit(value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring AC charge SOC limit command");
+                    return Ok(());
+                }
+                write_inverter.set_ac_charge_soc_limit(value).await?;
+            }
+            Command::DischargeCutoffSocLimit(value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring discharge cutoff SOC limit command");
+                    return Ok(());
+                }
+                write_inverter.set_discharge_cutoff_soc_limit(value).await?;
+            }
+            Command::SetHold(register, value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring set hold command");
+                    return Ok(());
+                }
+                write_inverter.set_hold(register, value).await?;
+            }
+            Command::WriteParam(register, value) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring write param command");
+                    return Ok(());
+                }
+                write_inverter.set_param(register, value).await?;
+            }
+            Command::SetAcChargeTime(values) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring set AC charge time command");
+                    return Ok(());
+                }
+                write_inverter.set_ac_charge_time(self.config.clone(), values).await?;
+            }
+            Command::SetAcFirstTime(values) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring set AC first time command");
+                    return Ok(());
+                }
+                write_inverter.set_ac_first_time(self.config.clone(), values).await?;
+            }
+            Command::SetChargePriorityTime(values) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring set charge priority time command");
+                    return Ok(());
+                }
+                write_inverter.set_charge_priority_time(self.config.clone(), values).await?;
+            }
+            Command::SetForcedDischargeTime(values) => {
+                if self.config.read_only() {
+                    warn!("Read-only mode enabled, ignoring set forced discharge time command");
+                    return Ok(());
+                }
+                write_inverter.set_forced_discharge_time(self.config.clone(), values).await?;
+            }
+            Command::ReadInputs(inverter, 1) => {
                 self.read_inputs(inverter.clone(), 0_u16, inverter.register_block_size()).await?
             },
-            ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
-            ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, inverter.register_block_size()).await?,
-            ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, inverter.register_block_size()).await?,
-            ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, inverter.register_block_size()).await?,
-            ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
-            ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
-            ReadInput(inverter, register, count) => {
+            Command::ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(inverter, 3) => self.read_inputs(inverter.clone(), 80_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(inverter, 4) => self.read_inputs(inverter.clone(), 120_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(inverter, 5) => self.read_inputs(inverter.clone(), 160_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
+            Command::ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
+            Command::ReadInput(inverter, register, count) => {
                 self.read_inputs(inverter.clone(), register, count).await?
-            }
-            ReadHold(inverter, register, count) => {
+            },
+            Command::ReadHold(inverter, register, count) => {
                 self.read_hold(inverter.clone(), register, count).await?
-            }
-            ReadParam(inverter, register) => {
+            },
+            Command::ReadParam(inverter, register) => {
                 self.read_param(inverter.clone(), register).await?
-            }
-            ReadAcChargeTime(inverter, num) => {
+            },
+            Command::ReadAcChargeTime(inverter, num) => {
                 self.read_time_register(inverter.clone(), Action::AcCharge(num))
                     .await?
-            }
-            ReadAcFirstTime(inverter, num) => {
+            },
+            Command::ReadAcFirstTime(inverter, num) => {
                 self.read_time_register(inverter.clone(), Action::AcFirst(num))
                     .await?
-            }
-            ReadChargePriorityTime(inverter, num) => {
+            },
+            Command::ReadChargePriorityTime(inverter, num) => {
                 self.read_time_register(inverter.clone(), Action::ChargePriority(num))
                     .await?
-            }
-            ReadForcedDischargeTime(inverter, num) => {
+            },
+            Command::ReadForcedDischargeTime(inverter, num) => {
                 self.read_time_register(inverter.clone(), Action::ForcedDischarge(num))
                     .await?
-            }
-            SetHold(inverter, register, value) => {
-                self.set_hold(inverter.clone(), register, value).await?
-            }
-            WriteParam(inverter, register, value) => {
-                self.write_param(inverter.clone(), register, value).await?
-            }
-            SetAcChargeTime(inverter, num, values) => {
-                self.set_time_register(inverter.clone(), Action::AcCharge(num), values)
-                    .await?
-            }
-            SetAcFirstTime(inverter, num, values) => {
-                self.set_time_register(inverter.clone(), Action::AcFirst(num), values)
-                    .await?
-            }
-            SetChargePriorityTime(inverter, num, values) => {
-                self.set_time_register(inverter.clone(), Action::ChargePriority(num), values)
-                    .await?
-            }
-            SetForcedDischargeTime(inverter, num, values) => {
-                self.set_time_register(inverter.clone(), Action::ForcedDischarge(num), values)
-                    .await?
-            }
-            AcCharge(inverter, enable) => {
+            },
+            Command::AcCharge(inverter, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
@@ -263,8 +335,8 @@ impl Coordinator {
                     enable,
                 )
                 .await?
-            }
-            ChargePriority(inverter, enable) => {
+            },
+            Command::ChargePriority(inverter, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
@@ -272,8 +344,8 @@ impl Coordinator {
                     enable,
                 )
                 .await?
-            }
-            ForcedDischarge(inverter, enable) => {
+            },
+            Command::ForcedDischarge(inverter, enable) => {
                 self.update_hold(
                     inverter.clone(),
                     Register::Register21,
@@ -281,27 +353,7 @@ impl Coordinator {
                     enable,
                 )
                 .await?
-            }
-            ChargeRate(inverter, pct) => {
-                self.set_hold(inverter.clone(), Register::ChargePowerPercentCmd, pct)
-                    .await?
-            }
-            DischargeRate(inverter, pct) => {
-                self.set_hold(inverter.clone(), Register::DischgPowerPercentCmd, pct)
-                    .await?
-            }
-            AcChargeRate(inverter, pct) => {
-                self.set_hold(inverter.clone(), Register::AcChargePowerCmd, pct)
-                    .await?
-            }
-            AcChargeSocLimit(inverter, pct) => {
-                self.set_hold(inverter.clone(), Register::AcChargeSocLimit, pct)
-                    .await?
-            }
-            DischargeCutoffSocLimit(inverter, pct) => {
-                self.set_hold(inverter.clone(), Register::DischgCutOffSocEod, pct)
-                    .await?
-            }
+            },
         }
         Ok(())
     }
@@ -788,7 +840,7 @@ impl Coordinator {
         bail!("send(to_mqtt) failed after retries - channel closed?");
     }
 
-    async fn publish_input_message(&self, register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
+    async fn publish_input_message(&self, _register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
         if !self.config.mqtt().enabled() {
             return Ok(());
         }

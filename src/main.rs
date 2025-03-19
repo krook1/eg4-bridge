@@ -14,6 +14,8 @@ async fn main() {
                 error!("{:?}", err);
                 std::process::exit(255);
             }
+            // Wait for shutdown to complete
+            let _ = shutdown_rx.await;
         }
         _ = handle_signals(shutdown_tx) => {
             // Wait for the app to complete its shutdown sequence

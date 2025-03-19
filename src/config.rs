@@ -3,6 +3,7 @@ use crate::prelude::*;
 use serde::Deserialize;
 use serde_with::serde_as;
 use serde_yaml;
+use std::sync::{Arc, Mutex};
 
 #[serde_as]
 #[derive(Clone, Debug, Deserialize)]
@@ -38,6 +39,7 @@ pub struct Inverter {
     pub use_tcp_nodelay: Option<bool>,
     pub register_block_size: Option<u16>,
     pub delay_ms: Option<u64>,
+    pub read_only: Option<bool>,
 }
 impl Inverter {
     pub fn enabled(&self) -> bool {
@@ -82,6 +84,10 @@ impl Inverter {
 
     pub fn delay_ms(&self) -> u64 {
         self.delay_ms.unwrap_or(1000)  // Default to 1000ms if not specified
+    }
+
+    pub fn read_only(&self) -> bool {
+        self.read_only == Some(true)  // Default to false if not specified
     }
 } // }}}
 
@@ -230,118 +236,91 @@ impl Scheduler {
     }
 } // }}}
 
-#[derive(Debug)]
 pub struct ConfigWrapper {
-    config: Rc<RefCell<Config>>,
+    config: Arc<Mutex<Config>>,
 }
 
 impl Clone for ConfigWrapper {
     fn clone(&self) -> Self {
         Self {
-            config: Rc::clone(&self.config),
+            config: self.config.clone(),
         }
     }
 }
 
 impl ConfigWrapper {
     pub fn new(file: String) -> Result<Self> {
-        let config = Rc::new(RefCell::new(Config::new(file)?));
-
-        Ok(Self { config })
+        let config = Config::new(file)?;
+        Ok(Self {
+            config: Arc::new(Mutex::new(config)),
+        })
     }
 
-    pub fn inverters(&self) -> Ref<Vec<Inverter>> {
-        Ref::map(self.config.borrow(), |b| &b.inverters)
+    pub fn inverters(&self) -> Vec<Inverter> {
+        self.config.lock().unwrap().inverters.clone()
     }
 
     pub fn set_inverters(&self, new: Vec<Inverter>) {
-        let mut c = self.config.borrow_mut();
-        c.inverters = new;
+        self.config.lock().unwrap().inverters = new;
     }
 
     pub fn enabled_inverters(&self) -> Vec<Inverter> {
-        self.inverters()
-            .iter()
-            .filter(|inverter| inverter.enabled)
-            .cloned()
-            .collect()
+        self.inverters().into_iter().filter(|i| i.enabled()).collect()
     }
 
     pub fn inverter_with_host(&self, host: &str) -> Option<Inverter> {
-        self.inverters()
-            .iter()
-            .find(|inverter| inverter.host == host)
-            .cloned()
+        self.inverters().into_iter().find(|i| i.host() == host)
     }
 
     pub fn enabled_inverter_with_datalog(&self, datalog: Serial) -> Option<Inverter> {
         self.enabled_inverters()
-            .iter()
-            .find(|inverter| inverter.datalog == datalog)
-            .cloned()
+            .into_iter()
+            .find(|i| i.datalog() == datalog)
     }
 
     pub fn inverters_for_message(&self, message: &mqtt::Message) -> Result<Vec<Inverter>> {
-        use mqtt::TargetInverter::*;
-
         let (target_inverter, _) = message.split_cmd_topic()?;
         let inverters = self.enabled_inverters();
 
-        let r = match target_inverter {
-            All => inverters,
-            Serial(datalog) => inverters
-                .iter()
-                .filter(|i| i.datalog == datalog)
-                .cloned()
-                .collect(),
-        };
-
-        Ok(r)
+        match target_inverter {
+            mqtt::TargetInverter::All => Ok(inverters),
+            mqtt::TargetInverter::Serial(datalog) => Ok(inverters
+                .into_iter()
+                .filter(|i| i.datalog() == datalog)
+                .collect()),
+        }
     }
 
-    pub fn mqtt(&self) -> Ref<Mqtt> {
-        Ref::map(self.config.borrow(), |b| &b.mqtt)
+    pub fn mqtt(&self) -> Mqtt {
+        self.config.lock().unwrap().mqtt.clone()
     }
 
-    pub fn influx(&self) -> Ref<Influx> {
-        Ref::map(self.config.borrow(), |b| &b.influx)
+    pub fn influx(&self) -> Influx {
+        self.config.lock().unwrap().influx.clone()
     }
 
-    pub fn influx_mut(&self) -> RefMut<Influx> {
-        RefMut::map(self.config.borrow_mut(), |b: &mut Config| &mut b.influx)
-    }
-
-    pub fn databases(&self) -> Ref<Vec<Database>> {
-        Ref::map(self.config.borrow(), |b| &b.databases)
+    pub fn databases(&self) -> Vec<Database> {
+        self.config.lock().unwrap().databases.clone()
     }
 
     pub fn set_databases(&self, new: Vec<Database>) {
-        let mut c = self.config.borrow_mut();
-        c.databases = new;
-    }
-
-    pub fn databases_mut(&self) -> RefMut<Vec<Database>> {
-        RefMut::map(self.config.borrow_mut(), |b: &mut Config| &mut b.databases)
+        self.config.lock().unwrap().databases = new;
     }
 
     pub fn have_enabled_database(&self) -> bool {
-        self.databases().iter().any(|database| database.enabled)
+        self.enabled_databases().len() > 0
     }
 
     pub fn enabled_databases(&self) -> Vec<Database> {
-        self.databases()
-            .iter()
-            .filter(|database| database.enabled)
-            .cloned()
-            .collect()
+        self.databases().into_iter().filter(|d| d.enabled()).collect()
     }
 
-    pub fn scheduler(&self) -> Ref<Option<Scheduler>> {
-        Ref::map(self.config.borrow(), |b| &b.scheduler)
+    pub fn scheduler(&self) -> Option<Scheduler> {
+        self.config.lock().unwrap().scheduler.clone()
     }
 
     pub fn loglevel(&self) -> String {
-        self.config.borrow().loglevel.to_owned()
+        self.config.lock().unwrap().loglevel.clone()
     }
 }
 

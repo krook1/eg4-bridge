@@ -23,6 +23,12 @@ impl WriteParam {
     }
 
     pub async fn run(&self) -> Result<Packet> {
+        // Skip write if inverter is in read-only mode
+        if self.inverter.read_only() {
+            bail!("Cannot write parameter register {} to value {} - inverter {} is in read-only mode", 
+                self.register, self.value, self.inverter.datalog());
+        }
+
         let packet = Packet::WriteParam(lxp::packet::WriteParam {
             datalog: self.inverter.datalog(),
             register: self.register,

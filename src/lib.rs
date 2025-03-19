@@ -44,6 +44,8 @@ impl Components {
         if let Ok(stats) = self.coordinator.stats.lock() {
             info!("Final Statistics:");
             stats.print_summary();
+        } else {
+            error!("Failed to lock statistics for printing");
         }
 
         // Now stop all components
@@ -87,11 +89,12 @@ pub async fn app() -> Result<()> {
 
     let channels = Channels::new();
 
+    // Initialize components in a specific order
+    let register_cache = RegisterCache::new(channels.clone());
+    let coordinator = Coordinator::new(config.clone(), channels.clone());
     let scheduler = Scheduler::new(config.clone(), channels.clone());
     let mqtt = Mqtt::new(config.clone(), channels.clone());
     let influx = Influx::new(config.clone(), channels.clone());
-    let register_cache = RegisterCache::new(channels.clone());
-    let coordinator = Coordinator::new(config.clone(), channels.clone());
 
     let inverters: Vec<_> = config
         .enabled_inverters()
@@ -126,12 +129,27 @@ pub async fn app() -> Result<()> {
         }
     });
 
-    // Run the main application with graceful shutdown
+    // Start components in sequence to ensure proper initialization
+    info!("Starting components...");
+    
+    // Start databases first
+    if let Err(e) = start_databases(databases.clone()).await {
+        error!("Failed to start databases: {}", e);
+        components.stop();
+        return Err(e);
+    }
+
+    // Start inverters
+    if let Err(e) = start_inverters(inverters.clone()).await {
+        error!("Failed to start inverters: {}", e);
+        components.stop();
+        return Err(e);
+    }
+
+    // Start remaining components
     let app_result = tokio::select! {
         res = async {
             futures::try_join!(
-                start_databases(databases),
-                start_inverters(inverters),
                 scheduler.start(),
                 mqtt.start(),
                 influx.start(),

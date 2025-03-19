@@ -34,6 +34,7 @@ impl UpdateHold {
     }
 
     pub async fn run(&self) -> Result<Packet> {
+
         let mut receiver = self.channels.from_inverter.subscribe();
 
         // get register from inverter

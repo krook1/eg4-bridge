@@ -18,6 +18,12 @@ impl TimeSync {
     }
 
     pub async fn run(&self) -> Result<()> {
+        // Skip time sync if inverter is in read-only mode
+        if self.inverter.read_only() {
+            debug!("Skipping time sync for inverter {} (read-only mode)", self.inverter.datalog());
+            return Ok(());
+        }
+
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog(),
             device_function: DeviceFunction::ReadHold,

@@ -33,6 +33,6 @@ impl Channels {
     }
 
     fn channel<T: Clone>() -> broadcast::Sender<T> {
-        broadcast::channel(2048).0 // we only need tx half
+        broadcast::channel(2048).0
     }
 }

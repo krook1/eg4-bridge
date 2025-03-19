@@ -26,6 +26,12 @@ impl SetHold {
     }
 
     pub async fn run(&self) -> Result<Packet> {
+        // Skip write if inverter is in read-only mode
+        if self.inverter.read_only() {
+            bail!("Cannot set holding register {} to value {} - inverter {} is in read-only mode", 
+                self.register, self.value, self.inverter.datalog());
+        }
+
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog(),
             device_function: DeviceFunction::WriteSingle,

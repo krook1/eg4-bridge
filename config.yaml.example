@@ -16,6 +16,8 @@ inverters:
   register_block_size: 40
   # Delay between read operations in milliseconds (recommended minimum: 1000)
   delay_ms: 1000
+  # Whether to operate in read-only mode, preventing any write operations (default: false)
+  read_only: false
 - enabled: false
   host: 192.168.0.163
   port: 8000
@@ -31,6 +33,8 @@ inverters:
   register_block_size: 40
   # Delay between read operations in milliseconds (recommended minimum: 1000)
   delay_ms: 1000
+  # Whether to operate in read-only mode, preventing any write operations (default: false)
+  read_only: false
 
 databases:
 - enabled: false
