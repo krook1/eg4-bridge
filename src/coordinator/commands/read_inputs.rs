@@ -55,12 +55,6 @@ impl ReadInputs {
 
         let result = receiver.wait_for_reply(&packet).await;
 
-        // If read was successful, mark input registers as read
-        if result.is_ok() {
-            ReadHold::mark_input_registers_read();
-            debug!("Input registers marked as read");
-        }
-
         // Add delay after read operation
         let delay_ms = self.inverter.delay_ms();
         info!("Sleeping for {}ms after read input operation", delay_ms);

@@ -200,8 +200,6 @@ impl Coordinator {
         match command {
             // Process input registers in sequence
             ReadInputs(inverter, 1) => {
-                // Reset input registers read status at the start of a new sequence
-                commands::read_hold::ReadHold::reset_input_registers_status();
                 self.read_inputs(inverter.clone(), 0_u16, inverter.register_block_size()).await?
             },
             ReadInputs(inverter, 2) => self.read_inputs(inverter.clone(), 40_u16, inverter.register_block_size()).await?,
@@ -211,10 +209,6 @@ impl Coordinator {
             ReadInputs(inverter, 6) => self.read_inputs(inverter.clone(), 200_u16, inverter.register_block_size()).await?,
             ReadInputs(_, n) => bail!("Invalid input register block number: {}", n),
             ReadInput(inverter, register, count) => {
-                // For individual input reads, ensure we're reading from Table 7
-                if register >= 240 {
-                    bail!("Invalid input register: {}. Input registers must be in Table 7 (0-239)", register);
-                }
                 self.read_inputs(inverter.clone(), register, count).await?
             }
             ReadHold(inverter, register, count) => {
