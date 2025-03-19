@@ -748,6 +748,14 @@ impl Coordinator {
                     info!("Received shutdown signal");
                     break;
                 }
+                inverter::ChannelData::Heartbeat(packet) => {
+                    // Handle heartbeat packets similarly to regular packets
+                    if let Ok(mut stats) = self.stats.lock() {
+                        stats.packets_received += 1;
+                        stats.heartbeat_packets_received += 1;
+                        stats.last_messages.insert(packet.datalog(), format!("{:?}", packet));
+                    }
+                }
             }
         }
 

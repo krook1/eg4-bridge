@@ -5,7 +5,6 @@ use {
     serde::{Serialize, Serializer},
     tokio::io::{AsyncReadExt, AsyncWriteExt},
     std::time::Duration,
-    std::future::Future,
     net2::TcpStreamExt,
 };
 
@@ -15,6 +14,7 @@ pub enum ChannelData {
     Disconnect(Serial), // inverter->coordinator, but eh.
     Packet(Packet),     // this one goes both ways through the channel.
     Shutdown,
+    Heartbeat(Packet),
 }
 pub type Sender = broadcast::Sender<ChannelData>;
 pub type Receiver = broadcast::Receiver<ChannelData>;
@@ -63,7 +63,13 @@ impl WaitForReply for Receiver {
                         return Ok(Packet::WriteParam(reply));
                     }
                 }
+                (Packet::Heartbeat(hb), Ok(ChannelData::Packet(Packet::Heartbeat(reply)))) => {
+                    if hb.datalog == reply.datalog {
+                        return Ok(Packet::Heartbeat(reply));
+                    }
+                }
                 (_, Ok(ChannelData::Packet(_))) => {} // Mismatched packet, continue waiting
+                (_, Ok(ChannelData::Heartbeat(_))) => {} // Heartbeat received, continue waiting
                 (_, Ok(ChannelData::Connected(_))) => {} // Connection status update, continue waiting
                 (_, Ok(ChannelData::Disconnect(inverter_datalog))) => {
                     if inverter_datalog == packet.datalog() {
@@ -220,8 +226,6 @@ impl Inverter {
 
         info!("inverter {}: connected!", inverter_config.datalog());
 
-        let mut to_inverter_rx = self.channels.to_inverter.subscribe();
-
         // Start sender and receiver tasks
         let sender_task = self.sender(writer);
         let receiver_task = self.receiver(reader);
@@ -296,6 +300,12 @@ impl Inverter {
                         }
                         Ok(Err(e)) => bail!("Failed to write packet: {}", e),
                         Err(_) => bail!("Write operation timed out after {} seconds", WRITE_TIMEOUT_SECS),
+                    }
+                }
+                Ok(ChannelData::Heartbeat(hb)) => {
+                    let packet = hb.clone();
+                    if let Err(e) = self.handle_incoming_packet(packet) {
+                        warn!("Failed to handle heartbeat packet: {}", e);
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
@@ -404,10 +414,23 @@ impl Inverter {
     }
 
     fn handle_incoming_packet(&self, packet: Packet) -> Result<()> {
-        if let Err(e) = self.channels.from_inverter.send(ChannelData::Packet(packet)) {
-            bail!("Failed to forward packet: {}", e);
+        let inverter_config = self.config();
+        match self.channels.from_inverter.send(ChannelData::Packet(packet.clone())) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let packet_info = match &packet {
+                    Packet::TranslatedData(td) => format!("TranslatedData(register={:?}, datalog={})", td.register, td.datalog),
+                    Packet::ReadParam(rp) => format!("ReadParam(register={:?}, datalog={})", rp.register, rp.datalog),
+                    Packet::WriteParam(wp) => format!("WriteParam(register={:?}, datalog={})", wp.register, wp.datalog),
+                    Packet::Heartbeat(hb) => format!("Heartbeat(datalog={})", hb.datalog),
+                };
+                bail!("Failed to forward packet from inverter {} ({}): {}", 
+                    inverter_config.datalog(),
+                    packet_info,
+                    e
+                );
+            }
         }
-        Ok(())
     }
 
     fn compare_datalog(&self, packet: Serial) {
