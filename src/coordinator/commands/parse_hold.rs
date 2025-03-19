@@ -467,6 +467,24 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
         }
         175 => format!("Hold Register: {} - AutoTest Trip Time: {} ms", reg, value),
 
+        180 => format!("Hold Register: {} - AFCIArcThreshold: {}", reg, value),
+        181 => format!("Hold Register: {} - VoltWatt_V1: {}", reg, value), // 0.1v
+        182 => format!("Hold Register: {} - VoltWatt_V2: {}", reg, value), // 0.1v
+
+        183 => format!("Hold Register: {} - VoltWatt_DelayTime: {} ms", reg, value), // ms
+        184 => format!("Hold Register: {} - VoltWatt_P2: {}", reg, value), // 0.1v
+
+        185 => format!("Hold Register: {} - Vref_QV: {}", reg, value),
+        186 => format!("Hold Register: {} - Vref_filtertime: {} seconds", reg, value), 
+
+        187 => format!("Hold Register: {} - Q3_QV: {}", reg, value), 
+        188 => format!("Hold Register: {} - Q4_QV: {}", reg, value),
+
+        189 => format!("Hold Register: {} - P1_QP: {} %", reg, value),
+        190 => format!("Hold Register: {} - P2_QP: {} %", reg, value),
+        190 => format!("Hold Register: {} - P3_QP: {} %", reg, value),
+        190 => format!("Hold Register: {} - P4_QP: {} %", reg, value),
+
         // Default case for unknown registers
         _ => format!("Unknown hold register {}: {}", reg, value),
     }
