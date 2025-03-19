@@ -64,16 +64,6 @@ impl ReadHold {
         // Validate block boundaries before proceeding
         validate_register_block_boundary(self.register, self.count)?;
 
-        // Validate that we're only reading Table 8 registers
-        if !Self::is_valid_hold_register_range(self.register, self.count) {
-            bail!(
-                "Invalid hold register range: registers {}-{} are not in Table 8. \
-                Only Table 8 registers can be accessed using ReadHold.",
-                self.register,
-                self.register + self.count - 1
-            );
-        }
-
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog(),
             device_function: DeviceFunction::ReadHold,

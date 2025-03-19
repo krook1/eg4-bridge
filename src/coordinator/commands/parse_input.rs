@@ -4,11 +4,19 @@ pub fn parse_input_register(reg: u16, value: u16) -> String {
     match reg {
         // System Status (0-39)
         0 => format!("Register {} - Inverter Status: ({} {:#b}) - {}", reg, value, value, match value {
-            0 => "Standby - Waiting",
-            1 => "Self-Test",
-            2 => "Normal Operation",
-            3 => "Alarm",
-            4 => "Fault",
+            0x0 => "Standby",
+            0x1 => "Fault",
+            0x2 => "Programming (Firmware Update)",
+            0x4 => "PV on-grid mode",
+            0x8 => "PV Charge mode",
+            0x10 => "PV Charge+on-grid mode",
+            0x14 => "PV+Battery on-grid mode", 
+            0x20 => "AC Charge mode",
+            0x28 => "PV+AC charge mode",
+            0x40 => "Battery off-grid mode",
+            0x80 => "PV off-grid mode",
+            0xC0 => "PV+battery off-grid mode",
+            0x88 => "PV charge +off-grid mode",
             _ => "Unknown Status"
         }),
         1 => format!("Register {} - PV1 Voltage (Vpv1): {:.1} V", reg, (value as f64) / 10.0),
