@@ -334,7 +334,7 @@ impl ConfigWrapper {
 
     /// Update an inverter's serial number at runtime
     pub fn update_inverter_serial(&self, old_serial: Serial, new_serial: Serial) -> Result<()> {
-        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
@@ -345,12 +345,12 @@ impl ConfigWrapper {
             }
         }
         
-        Err(anyhow::anyhow!("Inverter with serial {} not found", old_serial))
+        Err(anyhow::anyhow!("config.rs:Inverter with serial {} not found", old_serial))
     }
 
     /// Update an inverter's datalog value at runtime
     pub fn update_inverter_datalog(&self, old_datalog: Serial, new_datalog: Serial) -> Result<()> {
-        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("Failed to lock config"))?;
+        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
@@ -361,7 +361,7 @@ impl ConfigWrapper {
             }
         }
         
-        Err(anyhow::anyhow!("Inverter with datalog {} not found", old_datalog))
+        Err(anyhow::anyhow!("config.rs:Inverter with datalog {} not found", old_datalog))
     }
 
     pub fn homeassistant_enabled(&self) -> bool {
@@ -373,7 +373,7 @@ impl Config {
     pub fn new(file: String) -> Result<Self> {
         info!("Reading configuration from {}", file);
         let content = std::fs::read_to_string(&file)
-            .map_err(|err| anyhow!("error reading {}: {}", file, err))?;
+            .map_err(|err| anyhow!("config.rs:error reading {}: {}", file, err))?;
 
         let config: Self = serde_yaml::from_str(&content)?;
         
@@ -443,17 +443,17 @@ impl Config {
                 bail!("mqtt.port must be between 1 and 65535");
             }
             if self.mqtt.host.is_empty() {
-                return Err(anyhow!("MQTT host cannot be empty"));
+                return Err(anyhow!("config.rs:MQTT host cannot be empty"));
             }
         }
 
         // Validate InfluxDB configuration
         if self.influx.enabled {
             if let Err(e) = url::Url::parse(&self.influx.url) {
-                return Err(anyhow!("Invalid InfluxDB URL: {}", e));
+                return Err(anyhow!("config.rs:Invalid InfluxDB URL: {}", e));
             }
             if self.influx.database.is_empty() {
-                return Err(anyhow!("InfluxDB database name cannot be empty"));
+                return Err(anyhow!("config.rs:InfluxDB database name cannot be empty"));
             }
         }
 
@@ -461,7 +461,7 @@ impl Config {
         for db in &self.databases {
             if db.enabled {
                 if let Err(e) = url::Url::parse(db.url()) {
-                    return Err(anyhow!("Invalid database URL: {}", e));
+                    return Err(anyhow!("config.rs:Invalid database URL: {}", e));
                 }
             }
         }
@@ -473,10 +473,10 @@ impl Config {
                     bail!("inverter[{}].port must be between 1 and 65535", i);
                 }
                 if inv.host.is_empty() {
-                    return Err(anyhow!("Inverter host cannot be empty"));
+                    return Err(anyhow!("config.rs:Inverter host cannot be empty"));
                 }
                 if inv.read_timeout.unwrap_or(900) == 0 {
-                    return Err(anyhow!("Invalid read timeout: 0"));
+                    return Err(anyhow!("config.rs:Invalid read timeout: 0"));
                 }
             }
         }
@@ -486,7 +486,7 @@ impl Config {
             if scheduler.enabled {
                 if let Some(cron) = &scheduler.timesync_cron {
                     if cron.is_empty() {
-                        return Err(anyhow!("Scheduler cron expression cannot be empty"));
+                        return Err(anyhow!("config.rs:Scheduler cron expression cannot be empty"));
                     }
                 }
             }

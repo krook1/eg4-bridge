@@ -54,7 +54,7 @@ impl Database {
             "sqlite" => Ok(DatabaseType::SQLite),
             "mysql" => Ok(DatabaseType::MySQL),
             "postgres" => Ok(DatabaseType::Postgres),
-            _ => Err(anyhow!("unsupported database {}", self.config.url())),
+            _ => Err(anyhow!("database.rs:unsupported database {}", self.config.url())),
         }
     }
 
@@ -73,7 +73,7 @@ impl Database {
     pub async fn connection(&self) -> Result<Pool<Any>> {
         match &*self.pool.borrow() {
             Some(pool) => Ok(pool.clone()),
-            None => Err(anyhow::anyhow!("Database not connected"))
+            None => Err(anyhow::anyhow!("database.rs:Database not connected"))
         }
     }
 
