@@ -1,19 +1,27 @@
-> lxp-bridge is no longer being maintained - please feel free to fork and take over development - open a Discussion item to let us know!
+> eg4-bridge is a fork of lxp-bridge
 
 # lxp-bridge
 
-lxp-bridge is a tool to communicate with a LuxPower inverter (commonly used with home-battery and solar setups), written in Rust.
+eg4-bridge is a fork of the lxp-bridge tool originally written by @Chris Elsworth originally (https://github.com/celsworth/lxp-bridge) here.
 
-It allows you to monitor and control your inverter locally without any dependence on the manufacturer's own servers in China.
+It allows you to monitor and possibly control your inverter locally.
 
-## Home Assistant add-on
+## Home Assistant add-on (UNMAINTAINED)
 Click the icon below to add this repository to your Home Assistant instance or follow the procedure highlighted on the [Home Assistant website](https://home-assistant.io/hassio/installing_third_party_addons).
 
-[![Install lxp-bridge add-on repo.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fcelsworth%2Flxp-bridge)
+I don't use home assistant, but the original implemention by @celsworth included it, so it should be easy to revive.  My main focus is on sending data to influx v1
 
-## Pre-built images
-You can use pre-built images from here: https://hub.docker.com/r/celsworth/lxp-bridge
+## Pre-built images (HOME ASSISTANT UNMAINTAINED)
 
 ## Documentation
 
-Full documentation is now in the [Wiki](https://github.com/celsworth/lxp-bridge/wiki).
+I am attempting to provide a more stable set of documentation with the EG4 brand devices, which are (were?) compatible with the LuxPower inverters.  It may also work for other inverters.
+
+The tests are still from the original version and I expect will be revived, help with maintaining this is welcome.
+
+## Pull requests
+
+Issues and pull requests are welcome, and co-maintainers will be considered if you send a PR.
+
+It is always helpful if you provide details about what device and configuration you are using.
+
