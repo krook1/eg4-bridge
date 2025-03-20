@@ -1,8 +1,7 @@
 use anyhow::Result;
-use log::{error, info};
+use log::info;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::oneshot;
-use tokio::select;
 
 #[tokio::main]
 async fn main() {
