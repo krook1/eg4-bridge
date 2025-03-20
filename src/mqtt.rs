@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::lxp::packet::BatteryStatusString;
+use crate::eg4::packet::BatteryStatusString;
 
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Publish, QoS};
 
@@ -17,7 +17,7 @@ pub enum TargetInverter {
 }
 
 impl Message {
-    pub fn for_param(rp: lxp::packet::ReadParam) -> Result<Vec<Message>> {
+    pub fn for_param(rp: crate::eg4::packet::ReadParam) -> Result<Vec<Message>> {
         let mut r = Vec::new();
 
         for (register, value) in rp.pairs() {
@@ -31,7 +31,7 @@ impl Message {
         Ok(r)
     }
 
-    pub fn for_hold(td: lxp::packet::TranslatedData) -> Result<Vec<Message>> {
+    pub fn for_hold(td: crate::eg4::packet::TranslatedData) -> Result<Vec<Message>> {
         let mut r = Vec::new();
 
         for (register, value) in td.pairs() {
@@ -42,7 +42,7 @@ impl Message {
             });
 
             if register == 21 {
-                let bits = lxp::packet::Register21Bits::new(value);
+                let bits = crate::eg4::packet::Register21Bits::new(value);
                 r.push(mqtt::Message {
                     topic: format!("{}/hold/{}/bits", td.datalog, register),
                     retain: true,
@@ -51,7 +51,7 @@ impl Message {
             }
 
             if register == 110 {
-                let bits = lxp::packet::Register110Bits::new(value);
+                let bits = crate::eg4::packet::Register110Bits::new(value);
                 r.push(mqtt::Message {
                     topic: format!("{}/hold/{}/bits", td.datalog, register),
                     retain: true,
@@ -64,8 +64,8 @@ impl Message {
     }
 
     pub fn for_input_all(
-        inputs: &lxp::packet::ReadInputAll,
-        datalog: lxp::inverter::Serial,
+        inputs: &crate::eg4::packet::ReadInputAll,
+        datalog: crate::eg4::inverter::Serial,
     ) -> Result<Message> {
         Ok(mqtt::Message {
             topic: format!("{}/inputs/all", datalog),
@@ -75,10 +75,10 @@ impl Message {
     }
 
     pub fn for_input(
-        td: lxp::packet::TranslatedData,
+        td: crate::eg4::packet::TranslatedData,
         publish_individual: bool,
     ) -> Result<Vec<Message>> {
-        use lxp::packet::ReadInput;
+        use crate::eg4::packet::ReadInput;
 
         let mut r = Vec::new();
 
@@ -99,7 +99,7 @@ impl Message {
                     r.push(mqtt::Message {
                         topic: format!("{}/input/{}/parsed", td.datalog, register),
                         retain: false,
-                        payload: lxp::packet::StatusString::from_value(value).to_owned(),
+                        payload: crate::eg4::packet::StatusString::from_value(value).to_owned(),
                     });
                 }
 
@@ -126,7 +126,7 @@ impl Message {
                 r.push(mqtt::Message {
                     topic: format!("{}/input/warning_code/parsed", td.datalog),
                     retain: false,
-                    payload: lxp::packet::WarningCodeString::from_value(warning_code).to_owned(),
+                    payload: crate::eg4::packet::WarningCodeString::from_value(warning_code).to_owned(),
                 });
             }
 
@@ -134,7 +134,7 @@ impl Message {
                 r.push(mqtt::Message {
                     topic: format!("{}/input/fault_code/parsed", td.datalog),
                     retain: false,
-                    payload: lxp::packet::FaultCodeString::from_value(fault_code).to_owned(),
+                    payload: crate::eg4::packet::FaultCodeString::from_value(fault_code).to_owned(),
                 });
             }
         }

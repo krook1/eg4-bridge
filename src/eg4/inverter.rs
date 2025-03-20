@@ -1,4 +1,6 @@
 use crate::prelude::*;
+use crate::eg4::packet::{Packet, TcpFrameFactory};
+use crate::eg4::packet_decoder::PacketDecoder;
 
 use {
     async_trait::async_trait,
@@ -286,7 +288,7 @@ impl Inverter {
                         continue;
                     }
 
-                    let bytes = lxp::packet::TcpFrameFactory::build(&packet);
+                    let bytes = TcpFrameFactory::build(&packet);
                     if bytes.is_empty() {
                         warn!("Generated empty packet data for {:?}", packet);
                         continue;
@@ -337,7 +339,7 @@ impl Inverter {
 
         const MAX_BUFFER_SIZE: usize = 65536; // 64KB max buffer size
         let mut buf = BytesMut::with_capacity(MAX_BUFFER_SIZE); // Start with MAX_BUFFER_SIZE
-        let mut decoder = lxp::packet_decoder::PacketDecoder::new();
+        let mut decoder = PacketDecoder::new();
         let inverter_config = self.config();
         let mut to_inverter_rx = self.channels.to_inverter.subscribe();
 

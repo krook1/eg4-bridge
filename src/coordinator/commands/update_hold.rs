@@ -1,97 +1,84 @@
 use crate::prelude::*;
-
-use lxp::{
-    inverter::WaitForReply,
-    packet::{DeviceFunction, TranslatedData},
+use crate::eg4::inverter::WaitForReply;
+use crate::eg4::{
+    packet::{Packet, RegisterBit, DeviceFunction, TranslatedData},
+    inverter::ChannelData,
 };
 
 pub struct UpdateHold {
     channels: Channels,
     inverter: config::Inverter,
     register: u16,
-    bit: lxp::packet::RegisterBit,
+    bit: RegisterBit,
     enable: bool,
 }
 
 impl UpdateHold {
-    pub fn new<U>(
+    pub fn new(
         channels: Channels,
         inverter: config::Inverter,
-        register: U,
-        bit: lxp::packet::RegisterBit,
+        register: u16,
+        bit: RegisterBit,
         enable: bool,
-    ) -> Self
-    where
-        U: Into<u16>,
-    {
+    ) -> Self {
         Self {
             channels,
             inverter,
-            register: register.into(),
+            register,
             bit,
             enable,
         }
     }
 
-    pub async fn run(&self) -> Result<Packet> {
-
+    pub async fn run(&self) -> Result<()> {
         let mut receiver = self.channels.from_inverter.subscribe();
 
-        // get register from inverter
-        let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog().expect("datalog must be set for update_hold command"),
+        // First read the current value
+        let read_packet = Packet::TranslatedData(TranslatedData {
+            datalog: self.inverter.datalog().expect("datalog must be set"),
             device_function: DeviceFunction::ReadHold,
-            inverter: self.inverter.serial().expect("serial must be set for update_hold command"),
+            inverter: self.inverter.serial().expect("serial must be set"),
             register: self.register,
             values: vec![1, 0],
         });
 
-        if self
-            .channels
+        self.channels
             .to_inverter
-            .send(lxp::inverter::ChannelData::Packet(packet.clone()))
-            .is_err()
-        {
-            bail!("send(to_inverter) failed - channel closed?");
-        }
+            .send(ChannelData::Packet(read_packet.clone()))
+            .map_err(|e| anyhow!("send(to_inverter) failed: {}", e))?;
 
-        let packet = receiver.wait_for_reply(&packet).await?;
-        let bit = u16::from(self.bit.clone());
-        let value = if self.enable {
-            packet.value() | (bit as u16)
+        let read_packet = receiver.wait_for_reply(&read_packet).await?;
+        let current_value = read_packet.value();
+        let new_value = if self.enable {
+            current_value | (self.bit.clone() as u16)
         } else {
-            packet.value() & !(bit as u16)
+            current_value & !(self.bit.clone() as u16)
         };
 
-        // new packet to set register with a new value
-        let values = value.to_le_bytes().to_vec();
-        let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog().expect("datalog must be set for update_hold command"),
+        // Now write the new value
+        let write_packet = Packet::TranslatedData(TranslatedData {
+            datalog: self.inverter.datalog().expect("datalog must be set"),
             device_function: DeviceFunction::WriteSingle,
-            inverter: self.inverter.serial().expect("serial must be set for update_hold command"),
+            inverter: self.inverter.serial().expect("serial must be set"),
             register: self.register,
-            values,
+            values: new_value.to_le_bytes().to_vec(),
         });
 
-        if self
-            .channels
+        self.channels
             .to_inverter
-            .send(lxp::inverter::ChannelData::Packet(packet.clone()))
-            .is_err()
-        {
-            bail!("send(to_inverter) failed - channel closed?");
-        }
+            .send(ChannelData::Packet(write_packet.clone()))
+            .map_err(|e| anyhow!("send(to_inverter) failed: {}", e))?;
 
-        let packet = receiver.wait_for_reply(&packet).await?;
-        if packet.value() != value {
+        let write_packet = receiver.wait_for_reply(&write_packet).await?;
+        if write_packet.value() != new_value {
             bail!(
                 "failed to update register {:?}, got back value {} (wanted {})",
                 self.register,
-                packet.value(),
-                value
+                write_packet.value(),
+                new_value
             );
         }
 
-        Ok(packet)
+        Ok(())
     }
 }

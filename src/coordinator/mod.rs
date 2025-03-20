@@ -5,7 +5,7 @@ use crate::coordinator::commands::time_register_ops::Action;
 use crate::eg4::packet::{Register, RegisterBit};
 use crate::command::Command;
 
-use eg4::{
+use crate::eg4::{
     packet::{DeviceFunction, TranslatedData, Packet},
 };
 
@@ -15,7 +15,7 @@ use commands::{
 };
 
 use std::sync::{Arc, Mutex};
-use eg4::inverter;
+use crate::eg4::inverter;
 
 // Sleep durations - keeping only the ones actively used
 const RETRY_DELAY_MS: u64 = 1000;    // 1 second
@@ -23,10 +23,10 @@ const RETRY_DELAY_MS: u64 = 1000;    // 1 second
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ChannelData {
     Shutdown,
-    Packet(eg4::packet::Packet),
+    Packet(crate::eg4::packet::Packet),
 }
 
-pub type InputsStore = std::collections::HashMap<Serial, eg4::packet::ReadInputs>;
+pub type InputsStore = std::collections::HashMap<Serial, crate::eg4::packet::ReadInputs>;
 
 #[derive(Default)]
 pub struct PacketStats {
@@ -154,7 +154,7 @@ impl Coordinator {
 
     pub fn stop(&self) {
         info!("Stopping coordinator...");
-        let _ = self.channels.to_inverter.send(eg4::inverter::ChannelData::Shutdown);
+        let _ = self.channels.to_inverter.send(crate::eg4::inverter::ChannelData::Shutdown);
         let _ = self.channels.to_mqtt.send(mqtt::ChannelData::Shutdown);
     }
 
@@ -487,7 +487,7 @@ impl Coordinator {
         &self,
         inverter: config::Inverter,
         register: U,
-        bit: eg4::packet::RegisterBit,
+        bit: crate::eg4::packet::RegisterBit,
         enable: bool,
     ) -> Result<()>
     where
@@ -496,7 +496,7 @@ impl Coordinator {
         commands::update_hold::UpdateHold::new(
             self.channels.clone(),
             inverter.clone(),
-            register,
+            register.into(),
             bit,
             enable,
         )
@@ -515,7 +515,7 @@ impl Coordinator {
                     let first_byte = td.values[0];
                     if first_byte & 0x80 != 0 {  // Check if MSB is set (error response)
                         let error_code = first_byte & 0x7F;  // Remove MSB to get error code
-                        if let Some(error) = eg4::packet::ModbusError::from_code(error_code) {
+                        if let Some(error) = crate::eg4::packet::ModbusError::from_code(error_code) {
                             error!("Modbus error from inverter {}: {} (code: {:#04x})", 
                                 inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
                             if let Ok(mut stats) = self.stats.lock() {

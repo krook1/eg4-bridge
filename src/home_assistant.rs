@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use lxp::packet::Register;
+use crate::eg4::packet::Register;
 
 use serde::{Serialize, Serializer};
 

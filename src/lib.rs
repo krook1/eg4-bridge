@@ -5,7 +5,6 @@ pub mod coordinator;
 pub mod database;
 pub mod home_assistant;
 pub mod influx;
-pub mod lxp;
 pub mod mqtt;
 pub mod options;
 pub mod prelude;

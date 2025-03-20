@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::eg4::packet::Parser;
 
 use bytes::BytesMut;
 use std::io::{Error, ErrorKind};
@@ -138,7 +139,7 @@ impl Decoder for PacketDecoder {
         trace!("Packet data: {:02x?}", data);
 
         // Parse the packet using the LXP parser
-        match lxp::packet::Parser::parse(&data) {
+        match Parser::parse(&data) {
             Ok(packet) => {
                 debug!("Successfully parsed packet: {:?}", packet);
                 Ok(Some(packet))
