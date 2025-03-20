@@ -532,6 +532,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "eg4-bridge"
+version = "0.14.0-dev"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "clap",
+ "crc16",
+ "cron-parser",
+ "enum_dispatch",
+ "env_logger",
+ "futures",
+ "log",
+ "mockito",
+ "net2",
+ "nom",
+ "nom-derive",
+ "num_enum",
+ "reqwest",
+ "rinfluxdb",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "serde_yaml",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "either"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1099,39 +1132,6 @@ name = "log"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
-
-[[package]]
-name = "lxp-bridge"
-version = "0.14.0-dev"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "chrono",
- "clap",
- "crc16",
- "cron-parser",
- "enum_dispatch",
- "env_logger",
- "futures",
- "log",
- "mockito",
- "net2",
- "nom",
- "nom-derive",
- "num_enum",
- "reqwest",
- "rinfluxdb",
- "rumqttc",
- "serde",
- "serde_json",
- "serde_with",
- "serde_yaml",
- "sqlx",
- "tokio",
- "tokio-util",
- "url",
-]
 
 [[package]]
 name = "md-5"

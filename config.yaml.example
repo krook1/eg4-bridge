@@ -39,9 +39,9 @@ inverters:
 
 databases:
 - enabled: false
-  url: postgres://lxp:lxp@localhost/lxp
-  # url: mysql://lxp:lxp@localhost/lxp
-  # url: sqlite://lxp.db
+  url: postgres://eg4:eg4@localhost/eg4
+  # url: mysql://eg4:eg4@localhost/eg4
+  # url: sqlite://eg4.db
 
 mqtt:
   enabled: true
@@ -49,7 +49,7 @@ mqtt:
   port: 1883
   username:
   password:
-  namespace: lxp
+  namespace: eg4
   # Whether to publish individual input messages to separate topics (default: false)
   publish_individual_input: false
   homeassistant:
@@ -61,7 +61,7 @@ influx:
   url: http://localhost:8086
   username:
   password:
-  database: lxp
+  database: eg4
 
 scheduler:
   enabled: false

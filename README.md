@@ -1,8 +1,6 @@
-> eg4-bridge is a fork of lxp-bridge
+# eg4-bridge
 
-# lxp-bridge
-
-eg4-bridge is a fork of the lxp-bridge tool originally written by @Chris Elsworth originally (https://github.com/celsworth/lxp-bridge) here.
+eg4-bridge is a tool for monitoring and controlling EG4 inverters locally. It is based on the work originally done by @Chris Elsworth for LuxPower inverters.
 
 It allows you to monitor and possibly control your inverter locally.
 
