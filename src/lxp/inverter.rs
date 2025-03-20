@@ -172,8 +172,12 @@ impl Inverter {
 
     pub async fn start(&self) -> Result<()> {
         while let Err(e) = self.connect().await {
-            error!("inverter {}: {}", self.config().datalog(), e);
-            info!("inverter {}: reconnecting in {}s", self.config().datalog(), RECONNECT_DELAY_SECS);
+            error!("inverter {}: {}", self.config().datalog().map(|s| s.to_string()).unwrap_or_default(), e);
+            info!(
+                "inverter {}: reconnecting in {}s", 
+                self.config().datalog().map(|s| s.to_string()).unwrap_or_default(), 
+                RECONNECT_DELAY_SECS
+            );
             tokio::time::sleep(std::time::Duration::from_secs(RECONNECT_DELAY_SECS)).await;
         }
 
@@ -185,12 +189,10 @@ impl Inverter {
     }
 
     pub async fn connect(&self) -> Result<()> {
-        use net2::TcpStreamExt;
-
         let inverter_config = self.config();
         info!(
             "connecting to inverter {} at {}:{}",
-            inverter_config.datalog(),
+            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
             inverter_config.host(),
             inverter_config.port()
         );
@@ -224,38 +226,38 @@ impl Inverter {
 
         let (reader, writer) = stream.into_split();
 
-        info!("inverter {}: connected!", inverter_config.datalog());
+        info!("inverter {}: connected!", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
 
         // Start sender and receiver tasks
         let sender_task = self.sender(writer);
         let receiver_task = self.receiver(reader);
 
         // Send Connected message after tasks are started
-        if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog())) {
-            warn!("{}:Failed to send Connected message: {}", inverter_config.datalog(), e);
+        if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
+            warn!("Failed to send Connected message: {}", e);
         } else {
-            info!("{}:sent Connected message", inverter_config.datalog())
+            info!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
         tokio::select! {
             res = sender_task => {
                 if let Err(e) = res {
-                    warn!("Sender task ended with error: {} for {}", e, inverter_config.datalog());
+                    warn!("Sender task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 } else {
-                    warn!("Sender task ended for {}", inverter_config.datalog());
+                    warn!("Sender task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 }
             }
             res = receiver_task => {
                 if let Err(e) = res {
-                    warn!("Receiver task ended with error: {} for {}", e, inverter_config.datalog());
+                    warn!("Receiver task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 } else {
-                    warn!("Receiver task ended for {}", inverter_config.datalog());
+                    warn!("Receiver task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 }
             }
         }
 
         // Ensure we send a disconnect message
-        let _ = self.channels.from_inverter.send(ChannelData::Disconnect(inverter_config.datalog()));
+        let _ = self.channels.from_inverter.send(ChannelData::Disconnect(inverter_config.datalog().expect("datalog must be set")));
         Ok(())
     }
 
@@ -266,7 +268,7 @@ impl Inverter {
         loop {
             match to_inverter_rx.recv().await {
                 Ok(ChannelData::Shutdown) => {
-                    info!("inverter {}: received shutdown signal", inverter_config.datalog());
+                    info!("Received shutdown signal for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                     break;
                 }
                 Ok(ChannelData::Connected(_)) | Ok(ChannelData::Disconnect(_)) => {
@@ -275,9 +277,12 @@ impl Inverter {
                     continue;
                 }
                 Ok(ChannelData::Packet(packet)) => {
-                    if packet.datalog() != inverter_config.datalog() {
-                        debug!("Skipping packet for different inverter (expected {}, got {})",
-                            inverter_config.datalog(), packet.datalog());
+                    if packet.datalog() != inverter_config.datalog().expect("datalog must be set") {
+                        warn!(
+                            "Datalog mismatch - packet: {}, inverter: {}",
+                            packet.datalog(),
+                            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()
+                        );
                         continue;
                     }
 
@@ -287,7 +292,7 @@ impl Inverter {
                         continue;
                     }
 
-                    debug!("inverter {}: TX {:?}", inverter_config.datalog(), bytes);
+                    debug!("inverter {}: TX {:?}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), bytes);
                     
                     // Use timeout for write operations
                     match tokio::time::timeout(
@@ -297,30 +302,30 @@ impl Inverter {
                         Ok(Ok(_)) => {
                             // Ensure data is actually sent
                             if let Err(e) = writer.flush().await {
-                                bail!("Failed to flush socket: {} for {}", e, inverter_config.datalog());
+                                bail!("Failed to write to socket: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                             }
                         }
-                        Ok(Err(e)) => bail!("Failed to write packet: {} for {}", e, inverter_config.datalog()),
-                        Err(_) => bail!("{}:Write operation timed out after {} seconds", inverter_config.datalog(), WRITE_TIMEOUT_SECS),
+                        Ok(Err(e)) => bail!("Failed to write packet: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
+                        Err(_) => bail!("Write timeout after {} seconds for {}", WRITE_TIMEOUT_SECS, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
                     }
                 }
                 Ok(ChannelData::Heartbeat(hb)) => {
                     let packet = hb.clone();
                     if let Err(e) = self.handle_incoming_packet(packet) {
-                        warn!("{}:Failed to handle heartbeat packet: {}", inverter_config.datalog(), e);
+                        warn!("Failed to send heartbeat packet: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    bail!("{}:Channel closed", inverter_config.datalog());
+                    bail!("{}:Channel closed", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 }
                 Err(e) => {
-                    warn!("{}:Error receiving from channel: {}", inverter_config.datalog(), e);
+                    warn!("Error reading from channel: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                     continue;
                 }
             }
         }
 
-        info!("inverter {}: sender exiting", inverter_config.datalog());
+        info!("inverter {}: sender exiting", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         Ok(())
     }
 
@@ -411,7 +416,7 @@ impl Inverter {
             }
         }
 
-        info!("inverter {}: receiver exiting", inverter_config.datalog());
+        info!("inverter {}: receiver exiting", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         Ok(())
     }
 
@@ -427,7 +432,7 @@ impl Inverter {
                     Packet::Heartbeat(hb) => format!("Heartbeat(datalog={})", hb.datalog),
                 };
                 bail!("Failed to forward packet from inverter {} ({}): {}", 
-                    inverter_config.datalog(),
+                    inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
                     packet_info,
                     e
                 );
@@ -436,11 +441,11 @@ impl Inverter {
     }
 
     fn compare_datalog(&self, packet: Serial) {
-        if packet != self.config().datalog() {
+        if packet != self.config().datalog().expect("datalog must be set") {
             warn!(
                 "datalog serial mismatch found; packet={}, config={} - please check config!",
                 packet,
-                self.config().datalog()
+                self.config().datalog().map(|s| s.to_string()).unwrap_or_default()
             );
             // uncomment this when I fix serials in outgoing packets?
             //self.config.datalog = packet;
@@ -448,11 +453,11 @@ impl Inverter {
     }
 
     fn compare_inverter(&self, packet: Serial) {
-        if packet != self.config().serial() {
+        if packet != self.config().serial().expect("serial must be set") {
             warn!(
                 "inverter serial mismatch found; packet={}, config={} - please check config!",
                 packet,
-                self.config().serial()
+                self.config().serial().map(|s| s.to_string()).unwrap_or_default()
             );
             // uncomment this when I fix serials in outgoing packets?
             //self.config.serial = packet;

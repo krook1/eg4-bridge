@@ -71,9 +71,9 @@ impl ReadTimeRegister {
 
     pub async fn run(&self) -> Result<()> {
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for time_register_ops command"),
             device_function: DeviceFunction::ReadHold,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for time_register_ops command"),
             register: self.action.register()?,
             values: vec![2, 0],
         });
@@ -155,7 +155,7 @@ impl SetTimeRegister {
                 end: format!("{:02}:{:02}", self.values[2], self.values[3]),
             };
             let message = mqtt::Message {
-                topic: self.action.mqtt_reply_topic(self.inverter.datalog),
+                topic: self.action.mqtt_reply_topic(self.inverter.datalog().expect("datalog must be set for time_register_ops command")),
                 retain: true,
                 payload: serde_json::to_string(&payload)?,
             };
@@ -171,9 +171,9 @@ impl SetTimeRegister {
 
     async fn set_register(&self, register: u16, values: &[u8]) -> Result<()> {
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for time_register_ops command"),
             device_function: DeviceFunction::WriteSingle,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for time_register_ops command"),
             values: values.to_vec(),
             register,
         });

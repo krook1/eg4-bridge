@@ -30,9 +30,9 @@ impl ReadHold {
 
     pub async fn run(&self) -> Result<Packet> {
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for read_hold command"),
             device_function: DeviceFunction::ReadHold,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for read_hold command"),
             register: self.register,
             values: vec![self.count as u8, 0],
         });

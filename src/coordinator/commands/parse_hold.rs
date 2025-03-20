@@ -1,4 +1,3 @@
-
 /// Parse and decode a hold register value according to Table 8 of the protocol specification
 pub fn parse_hold_register(reg: u16, value: u16) -> String {
     match reg {
@@ -482,8 +481,8 @@ pub fn parse_hold_register(reg: u16, value: u16) -> String {
 
         189 => format!("Hold Register: {} - P1_QP: {} %", reg, value),
         190 => format!("Hold Register: {} - P2_QP: {} %", reg, value),
-        190 => format!("Hold Register: {} - P3_QP: {} %", reg, value),
-        190 => format!("Hold Register: {} - P4_QP: {} %", reg, value),
+        191 => format!("Hold Register: {} - P3_QP: {} %", reg, value),
+        192 => format!("Hold Register: {} - P4_QP: {} %", reg, value),
 
         // Default case for unknown registers
         _ => format!("Unknown hold register {}: {}", reg, value),

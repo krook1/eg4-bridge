@@ -24,7 +24,7 @@ impl WriteParam {
 
     pub async fn run(&self) -> Result<Packet> {
         let packet = Packet::WriteParam(lxp::packet::WriteParam {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for write_param command"),
             register: self.register,
             values: self.value.to_le_bytes().to_vec(),
         });

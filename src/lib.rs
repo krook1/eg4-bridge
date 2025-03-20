@@ -168,7 +168,7 @@ pub async fn app() -> Result<()> {
 
     // Start Coordinator before inverters to ensure it's ready to receive messages
     info!("Starting Coordinator...");
-    let coordinator_handle = tokio::spawn({
+    let _coordinator_handle = tokio::spawn({
         let coordinator = coordinator.clone();
         async move {
             if let Err(e) = coordinator.start().await {
@@ -179,7 +179,7 @@ pub async fn app() -> Result<()> {
 
     // Start RegisterCache before inverters
     info!("Starting RegisterCache...");
-    let register_cache_handle = tokio::spawn(async move {
+    let _register_cache_handle = tokio::spawn(async move {
         if let Err(e) = register_cache.start().await {
             error!("RegisterCache error: {}", e);
         }
@@ -233,9 +233,9 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
         let config = inverter.config();
         info!(
             "Starting inverter - Serial: {}, Datalog: {}, Host: {}",
-            config.serial(),
-            config.datalog(),
-            config.host()
+            config.serial().map(|s| s.to_string()).unwrap_or_default(),
+            config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+            config.host(),
         );
     }
     let futures = inverters.iter().map(|i| i.start());

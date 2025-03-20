@@ -74,17 +74,17 @@ impl Database {
         Ok(())
     }
 
-    pub async fn connection(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Any>> {
+    pub async fn connection(&self) -> Result<AnyPool> {
         match &*self.pool.borrow() {
-            Some(pool) => Ok(pool.acquire().await?),
-            None => Err(anyhow!("Database pool not initialized"))
+            Some(pool) => Ok(pool.clone()),
+            None => Err(anyhow::anyhow!("Database not connected"))
         }
     }
 
     async fn migrate(&self) -> Result<()> {
         use DatabaseType::*;
 
-        let mut conn = self.connection().await?;
+        let pool = self.connection().await?;
 
         // work out migration directory to use based on database url
         match self.database()? {
@@ -92,7 +92,7 @@ impl Database {
             MySQL => sqlx::migrate!("db/migrations/mysql"),
             Postgres => sqlx::migrate!("db/migrations/postgres"),
         }
-        .run(&mut conn)
+        .run(&pool)
         .await?;
 
         Ok(())
@@ -184,7 +184,7 @@ impl Database {
     }
 
     async fn insert(&self, query: &str, data: &lxp::packet::ReadInputAll) -> Result<()> {
-        let mut conn = self.connection().await?;
+        let pool = self.connection().await?;
 
         sqlx::query(query)
             .bind(data.status as i32)
@@ -277,9 +277,9 @@ impl Database {
             .bind(data.cycle_count as i32)
             .bind(data.vbat_inv)
             .bind(data.datalog.to_string())
-            .bind(data.time.0)
+            .bind(data.time.0.timestamp())
             .persistent(true)
-            .fetch_optional(&mut conn)
+            .fetch_optional(&pool)
             .await?;
 
         Ok(())

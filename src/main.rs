@@ -2,6 +2,7 @@ use anyhow::Result;
 use log::{error, info};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::oneshot;
+use tokio::select;
 
 #[tokio::main]
 async fn main() {
@@ -9,9 +10,9 @@ async fn main() {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     
     tokio::select! {
-        result = lxp_bridge::app() => {
-            if let Err(err) = result {
-                error!("{:?}", err);
+        result = eg4_bridge::app() => {
+            if let Err(e) = result {
+                eprintln!("Error: {:?}", e);
                 std::process::exit(255);
             }
             // Wait for shutdown to complete

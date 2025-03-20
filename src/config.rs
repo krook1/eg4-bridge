@@ -34,9 +34,9 @@ pub struct Inverter {
     pub host: String,
     pub port: u16,
     #[serde(deserialize_with = "de_serial")]
-    pub serial: Serial,
+    pub serial: Option<Serial>,
     #[serde(deserialize_with = "de_serial")]
-    pub datalog: Serial,
+    pub datalog: Option<Serial>,
 
     pub heartbeats: Option<bool>,
     pub publish_holdings_on_connect: Option<bool>,
@@ -59,11 +59,11 @@ impl Inverter {
         self.port
     }
 
-    pub fn serial(&self) -> Serial {
+    pub fn serial(&self) -> Option<Serial> {
         self.serial
     }
 
-    pub fn datalog(&self) -> Serial {
+    pub fn datalog(&self) -> Option<Serial> {
         self.datalog
     }
 
@@ -280,7 +280,7 @@ impl ConfigWrapper {
     pub fn enabled_inverter_with_datalog(&self, datalog: Serial) -> Option<Inverter> {
         self.enabled_inverters()
             .into_iter()
-            .find(|i| i.datalog() == datalog)
+            .find(|i| i.datalog() == Some(datalog))
     }
 
     pub fn inverters_for_message(&self, message: &mqtt::Message) -> Result<Vec<Inverter>> {
@@ -291,7 +291,7 @@ impl ConfigWrapper {
             mqtt::TargetInverter::All => Ok(inverters),
             mqtt::TargetInverter::Serial(datalog) => Ok(inverters
                 .into_iter()
-                .filter(|i| i.datalog() == datalog)
+                .filter(|i| i.datalog() == Some(datalog))
                 .collect()),
         }
     }
@@ -338,9 +338,9 @@ impl ConfigWrapper {
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
-            if inverter.serial == old_serial {
+            if inverter.serial == Some(old_serial) {
                 info!("Updating inverter serial from {} to {}", old_serial, new_serial);
-                inverter.serial = new_serial;
+                inverter.serial = Some(new_serial);
                 return Ok(());
             }
         }
@@ -354,9 +354,9 @@ impl ConfigWrapper {
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
-            if inverter.datalog == old_datalog {
+            if inverter.datalog == Some(old_datalog) {
                 info!("Updating inverter datalog from {} to {}", old_datalog, new_datalog);
-                inverter.datalog = new_datalog;
+                inverter.datalog = Some(new_datalog);
                 return Ok(());
             }
         }
@@ -388,8 +388,8 @@ impl Config {
             info!("      Enabled: {}", inv.enabled);
             info!("      Host: {}", inv.host);
             info!("      Port: {}", inv.port);
-            info!("      Serial: {}", inv.serial);
-            info!("      Datalog: {}", inv.datalog);
+            info!("      Serial: {}", inv.serial.map(|s| s.to_string()).unwrap_or_default());
+            info!("      Datalog: {}", inv.datalog.map(|s| s.to_string()).unwrap_or_default());
             info!("      Read Timeout: {}s", inv.read_timeout.unwrap_or(900));
             info!("      TCP NoDelay: {}", inv.use_tcp_nodelay.unwrap_or(true));
             info!("      Register Block Size: {}", inv.register_block_size.unwrap_or(40));
@@ -526,10 +526,14 @@ impl Config {
     }
 }
 
-fn de_serial<'de, D>(deserializer: D) -> Result<Serial, D::Error>
+fn de_serial<'de, D>(deserializer: D) -> Result<Option<Serial>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let raw = String::deserialize(deserializer)?;
-    raw.parse().map_err(serde::de::Error::custom)
+    let s = String::deserialize(deserializer)?;
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        Serial::from_str(&s).map(Some).map_err(serde::de::Error::custom)
+    }
 }

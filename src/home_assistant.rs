@@ -153,7 +153,7 @@ impl Config {
             state_topic: &format!(
                 "{}/{}/inputs/all",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog()
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
             ),
             device: self.device(),
             availability: self.availability(),
@@ -211,7 +211,7 @@ impl Config {
                 state_topic: &format!(
                     "{}/{}/input/0/parsed",
                     self.mqtt_config.namespace(),
-                    self.inverter.datalog()
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                 ),
                 value_template: ValueTemplate::None,
                 ..base.clone()
@@ -231,7 +231,7 @@ impl Config {
                 state_topic: &format!(
                     "{}/{}/input/fault_code/parsed",
                     self.mqtt_config.namespace(),
-                    self.inverter.datalog()
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                 ),
                 value_template: ValueTemplate::None,
                 icon: Some("mdi:alert"),
@@ -244,7 +244,7 @@ impl Config {
                 state_topic: &format!(
                     "{}/{}/input/warning_code/parsed",
                     self.mqtt_config.namespace(),
-                    self.inverter.datalog()
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                 ),
                 value_template: ValueTemplate::None,
                 icon: Some("mdi:alert-outline"),
@@ -257,7 +257,7 @@ impl Config {
                 state_topic: &format!(
                     "{}/{}/inputs/3/bat_status_9_decoded",
                     self.mqtt_config.namespace(),
-                    self.inverter.datalog()
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                 ),
                 value_template: ValueTemplate::None,
                 icon: Some("mdi:battery-status-variant"),
@@ -270,7 +270,7 @@ impl Config {
                 state_topic: &format!(
                     "{}/{}/inputs/3/bat_status_inv_decoded",
                     self.mqtt_config.namespace(),
-                    self.inverter.datalog()
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                 ),
                 value_template: ValueTemplate::None,
                 icon: Some("mdi:battery-sync"),
@@ -711,7 +711,7 @@ impl Config {
             "{}/{}/lxp_{}/{}/config",
             self.mqtt_config.homeassistant().prefix(),
             kind,
-            self.inverter.datalog(),
+            self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
             // The forward slash is used in some names (e.g. ac_charge/1) but
             // has semantic meaning in MQTT, so must be changed
             name.replace('/', "_"),
@@ -724,15 +724,15 @@ impl Config {
             state_topic: format!(
                 "{}/{}/hold/21/bits",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog()
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
             ),
             command_topic: format!(
                 "{}/cmd/{}/set/{}",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog(),
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 name
             ),
-            unique_id: format!("lxp_{}_{}", self.inverter.datalog(), name),
+            unique_id: format!("lxp_{}_{}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), name),
             name: label.to_string(),
             device: self.device(),
             availability: self.availability(),
@@ -751,17 +751,17 @@ impl Config {
             state_topic: format!(
                 "{}/{}/hold/{}",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog(),
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 register as u16,
             ),
             command_topic: format!(
                 "{}/cmd/{}/set/hold/{}",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog(),
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 register as u16,
             ),
             value_template: "{{ float(value) }}".to_string(),
-            unique_id: format!("lxp_{}_number_{:?}", self.inverter.datalog(), register),
+            unique_id: format!("lxp_{}_number_{:?}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), register),
             device: self.device(),
             availability: self.availability(),
             min: 0.0,
@@ -784,18 +784,18 @@ impl Config {
             state_topic: format!(
                 "{}/{}/{}",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog(),
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 name,
             ),
             command_topic: format!(
                 "{}/cmd/{}/set/{}",
                 self.mqtt_config.namespace(),
-                self.inverter.datalog(),
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 name,
             ),
             command_template: r#"{% set parts = value.split("-") %}{"start":"{{ parts[0] }}", "end":"{{ parts[1] }}"}"#.to_string(),
             value_template: r#"{{ value_json["start"] }}-{{ value_json["end"] }}"#.to_string(),
-            unique_id: format!("lxp_{}_text_{}", self.inverter.datalog(), name),
+            unique_id: format!("lxp_{}_text_{}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), name),
             device: self.device(),
             availability: self.availability(),
             pattern: r"([01]?[0-9]|2[0-3]):[0-5][0-9]-([01]?[0-9]|2[0-3]):[0-5][0-9]".to_string(),
@@ -809,14 +809,14 @@ impl Config {
     }
 
     fn unique_id(&self, name: &str) -> String {
-        format!("lxp_{}_{}", self.inverter.datalog(), name)
+        format!("lxp_{}_{}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), name)
     }
 
     fn device(&self) -> Device {
         Device {
-            identifiers: [format!("lxp_{}", self.inverter.datalog())],
+            identifiers: [format!("lxp_{}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default())],
             manufacturer: "LuxPower".to_owned(),
-            name: format!("lxp_{}", self.inverter.datalog()),
+            name: format!("lxp_{}", self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default()),
         }
     }
 

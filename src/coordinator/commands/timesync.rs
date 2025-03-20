@@ -20,14 +20,15 @@ impl TimeSync {
     pub async fn run(&self) -> Result<()> {
         // Skip time sync if inverter is in read-only mode
         if self.inverter.read_only() {
-            debug!("Skipping time sync for inverter {} (read-only mode)", self.inverter.datalog());
+            debug!("Skipping time sync for inverter {} (read-only mode)", 
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
             return Ok(());
         }
 
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for timesync command"),
             device_function: DeviceFunction::ReadHold,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for timesync command"),
             register: 12,
             values: vec![3, 0],
         });
@@ -64,8 +65,8 @@ impl TimeSync {
 
             let time_diff = dt - now;
             debug!(
-                "inverter {} time difference is {}",
-                self.inverter.datalog(),
+                "Time sync for inverter {}: {}",
+                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 time_diff
             );
 
@@ -108,9 +109,9 @@ impl TimeSync {
         use chrono::{Datelike, Timelike};
 
         Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for timesync command"),
             device_function: DeviceFunction::WriteMulti,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for timesync command"),
             register: 12,
             values: vec![
                 (now.year() - 2000) as u8,

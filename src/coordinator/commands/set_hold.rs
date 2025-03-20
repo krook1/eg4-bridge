@@ -29,13 +29,13 @@ impl SetHold {
         // Skip write if inverter is in read-only mode
         if self.inverter.read_only() {
             bail!("Cannot set holding register {} to value {} - inverter {} is in read-only mode", 
-                self.register, self.value, self.inverter.datalog());
+                self.register, self.value, self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for set_hold command"),
             device_function: DeviceFunction::WriteSingle,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for set_hold command"),
             register: self.register,
             values: self.value.to_le_bytes().to_vec(),
         });

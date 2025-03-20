@@ -22,7 +22,7 @@ impl ReadParam {
 
     pub async fn run(&self) -> Result<Packet> {
         let packet = Packet::ReadParam(lxp::packet::ReadParam {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for read_param command"),
             register: self.register,
             values: vec![], // unused
         });

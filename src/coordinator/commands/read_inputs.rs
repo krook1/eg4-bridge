@@ -27,9 +27,9 @@ impl ReadInputs {
 
     pub async fn run(&self) -> Result<Packet> {
         let packet = Packet::TranslatedData(TranslatedData {
-            datalog: self.inverter.datalog(),
+            datalog: self.inverter.datalog().expect("datalog must be set for read_inputs command"),
             device_function: DeviceFunction::ReadInput,
-            inverter: self.inverter.serial(),
+            inverter: self.inverter.serial().expect("serial must be set for read_inputs command"),
             register: self.register,
             values: vec![self.count as u8, 0],
         });

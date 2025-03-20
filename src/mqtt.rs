@@ -441,7 +441,7 @@ impl Mqtt {
                     format!(
                         "{}/cmd/{}/#",
                         self.config.mqtt().namespace(),
-                        inverter.datalog()
+                        inverter.datalog().map(|s| s.to_string()).unwrap_or_default()
                     ),
                     QoS::AtMostOnce,
                 )
