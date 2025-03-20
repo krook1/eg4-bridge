@@ -13,6 +13,7 @@ pub mod register_cache;
 pub mod scheduler;
 pub mod unixtime;
 pub mod utils;
+pub mod eg4;
 
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -33,7 +34,7 @@ impl Components {
     fn stop(mut self) {
         // First send shutdown signals to all components
         info!("Sending shutdown signals...");
-        let _ = self.channels.from_inverter.send(lxp::inverter::ChannelData::Shutdown);
+        let _ = self.channels.from_inverter.send(eg4::inverter::ChannelData::Shutdown);
         let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
         let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
         
@@ -64,7 +65,7 @@ impl Components {
 
 pub async fn app() -> Result<()> {
     let options = Options::new();
-    info!("Starting lxp-bridge {} with config file: {}", CARGO_PKG_VERSION, options.config_file);
+    info!("Starting eg4-bridge {} with config file: {}", CARGO_PKG_VERSION, options.config_file);
 
     let config = ConfigWrapper::new(options.config_file).unwrap_or_else(|err| {
         // no logging available yet, so eprintln! will have to do
@@ -86,7 +87,7 @@ pub async fn app() -> Result<()> {
         .write_style(env_logger::WriteStyle::Never)
         .init();
 
-    info!("lxp-bridge {} starting", CARGO_PKG_VERSION);
+    info!("eg4-bridge {} starting", CARGO_PKG_VERSION);
 
     info!("Initializing channels...");
     let channels = Channels::new();

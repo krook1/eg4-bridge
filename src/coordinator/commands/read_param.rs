@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-use lxp::inverter::WaitForReply;
+use eg4::inverter::WaitForReply;
 
 pub struct ReadParam {
     channels: Channels,
@@ -21,7 +21,7 @@ impl ReadParam {
     }
 
     pub async fn run(&self) -> Result<Packet> {
-        let packet = Packet::ReadParam(lxp::packet::ReadParam {
+        let packet = Packet::ReadParam(eg4::packet::ReadParam {
             datalog: self.inverter.datalog().expect("datalog must be set for read_param command"),
             register: self.register,
             values: vec![], // unused
@@ -32,7 +32,7 @@ impl ReadParam {
         if self
             .channels
             .to_inverter
-            .send(lxp::inverter::ChannelData::Packet(packet.clone()))
+            .send(eg4::inverter::ChannelData::Packet(packet.clone()))
             .is_err()
         {
             bail!("send(to_inverter) failed - channel closed?");

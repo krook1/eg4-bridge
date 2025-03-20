@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-use lxp::{
+use eg4::{
     inverter::WaitForReply,
     packet::{DeviceFunction, TranslatedData},
 };
@@ -39,7 +39,7 @@ impl ReadInputs {
         if self
             .channels
             .to_inverter
-            .send(lxp::inverter::ChannelData::Packet(packet.clone()))
+            .send(eg4::inverter::ChannelData::Packet(packet.clone()))
             .is_err()
         {
             bail!("send(to_inverter) failed - channel closed?");

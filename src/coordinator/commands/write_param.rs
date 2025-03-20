@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-use lxp::inverter::WaitForReply;
+use eg4::inverter::WaitForReply;
 
 pub struct WriteParam {
     channels: Channels,
@@ -23,7 +23,7 @@ impl WriteParam {
     }
 
     pub async fn run(&self) -> Result<Packet> {
-        let packet = Packet::WriteParam(lxp::packet::WriteParam {
+        let packet = Packet::WriteParam(eg4::packet::WriteParam {
             datalog: self.inverter.datalog().expect("datalog must be set for write_param command"),
             register: self.register,
             values: self.value.to_le_bytes().to_vec(),
@@ -34,7 +34,7 @@ impl WriteParam {
         if self
             .channels
             .to_inverter
-            .send(lxp::inverter::ChannelData::Packet(packet.clone()))
+            .send(eg4::inverter::ChannelData::Packet(packet.clone()))
             .is_err()
         {
             bail!("send(to_inverter) failed - channel closed?");

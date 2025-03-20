@@ -4,7 +4,7 @@ use sqlx::{any::AnyConnectOptions, AnyPool};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelData {
-    ReadInputAll(Box<lxp::packet::ReadInputAll>),
+    ReadInputAll(Box<eg4::packet::ReadInputAll>),
     Shutdown,
 }
 
@@ -183,7 +183,7 @@ impl Database {
         Ok(())
     }
 
-    async fn insert(&self, query: &str, data: &lxp::packet::ReadInputAll) -> Result<()> {
+    async fn insert(&self, query: &str, data: &eg4::packet::ReadInputAll) -> Result<()> {
         let pool = self.connection().await?;
 
         sqlx::query(query)

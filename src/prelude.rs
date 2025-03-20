@@ -20,7 +20,7 @@ pub use crate::{
     database::{self, Database},
     home_assistant,
     influx::{self, Influx},
-    lxp::{
+    eg4::{
         self,
         inverter::{Inverter, Serial},
         packet::{Packet, PacketCommon},

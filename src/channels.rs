@@ -1,12 +1,13 @@
 use crate::prelude::*;
+use crate::eg4::inverter::ChannelData;
 
 #[derive(Debug, Clone)]
 pub struct Channels {
-    pub from_inverter: broadcast::Sender<lxp::inverter::ChannelData>,
-    pub to_inverter: broadcast::Sender<lxp::inverter::ChannelData>,
-    pub from_mqtt: broadcast::Sender<mqtt::ChannelData>,
-    pub to_mqtt: broadcast::Sender<mqtt::ChannelData>,
-    pub to_influx: broadcast::Sender<influx::ChannelData>,
+    pub from_inverter: broadcast::Sender<ChannelData>,
+    pub to_inverter: broadcast::Sender<ChannelData>,
+    pub from_mqtt: broadcast::Sender<crate::mqtt::ChannelData>,
+    pub to_mqtt: broadcast::Sender<crate::mqtt::ChannelData>,
+    pub to_influx: broadcast::Sender<crate::influx::ChannelData>,
     pub to_database: broadcast::Sender<database::ChannelData>,
     pub read_register_cache: broadcast::Sender<register_cache::ChannelData>,
     pub to_register_cache: broadcast::Sender<register_cache::ChannelData>,
