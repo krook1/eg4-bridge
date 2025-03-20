@@ -121,7 +121,7 @@ impl std::str::FromStr for Serial {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() != 10 {
-            return Err(anyhow!("{} must be exactly 10 characters", s));
+            return Err(anyhow!("inverter.rs:{} must be exactly 10 characters", s));
         }
 
         let mut r: [u8; 10] = Default::default();
