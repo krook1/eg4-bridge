@@ -588,7 +588,7 @@ impl Coordinator {
                         let pairs = td.pairs();
                         
                         // Log all register values
-                        info!("Input Register Values:");
+                        debug!("Input Register Values:");
                         for (reg, value) in &pairs {
                             // Cache the register value
                             if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
@@ -599,7 +599,7 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            info!("  {}", parse_input::parse_input_register(*reg, (*value).into()));
+                            debug!("  {}", parse_input::parse_input_register(*reg, (*value).into()));
                         }
 
                         if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
@@ -615,7 +615,7 @@ impl Coordinator {
                         let pairs = td.pairs();
                         
                         // Log all register values
-                        info!("Hold Register Values:");
+                        debug!("Hold Register Values:");
                         for (reg, value) in &pairs {
                             // Cache the register value
                             if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
@@ -626,7 +626,7 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            info!("  {}", parse_hold::parse_hold_register(*reg, *value));
+                            debug!("  {}", parse_hold::parse_hold_register(*reg, *value));
                         }
                         
                         if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
