@@ -170,6 +170,12 @@ impl SetTimeRegister {
     }
 
     async fn set_register(&self, register: u16, values: &[u8]) -> Result<()> {
+        // Skip write if inverter is in read-only mode
+        if self.inverter.read_only() {
+            bail!("Cannot set time register {} to value {:?} - inverter {} is in read-only mode", 
+                register, values, self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
+        }
+
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set for time_register_ops command"),
             device_function: DeviceFunction::WriteSingle,
