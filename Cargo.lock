@@ -534,6 +534,7 @@ dependencies = [
  "serde_with",
  "serde_yaml",
  "sqlx",
+ "tempfile",
  "tokio",
  "tokio-util",
  "url",

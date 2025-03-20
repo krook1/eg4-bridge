@@ -377,6 +377,10 @@ impl ConfigWrapper {
     pub fn datalog_file(&self) -> Option<String> {
         self.config.lock().unwrap().datalog_file.clone()
     }
+
+    pub fn strict_data_check(&self) -> bool {
+        self.config.lock().unwrap().strict_data_check
+    }
 }
 
 impl Config {

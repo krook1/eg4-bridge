@@ -303,24 +303,24 @@ impl Inverter {
                     ).await {
                         Ok(Ok(_)) => {
                             // Ensure data is actually sent
-                            if let Err(e) = writer.flush().await {
-                                bail!("Failed to write to socket: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                            if let Err(_e) = writer.flush().await {
+                                bail!("Failed to write to socket for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                             }
                         }
-                        Ok(Err(e)) => bail!("Failed to write packet: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
+                        Ok(Err(_e)) => bail!("Failed to write packet for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
                         Err(_) => bail!("Write timeout after {} seconds for {}", WRITE_TIMEOUT_SECS, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
                     }
                 }
                 Ok(ChannelData::Heartbeat(hb)) => {
                     let packet = hb.clone();
-                    if let Err(e) = self.handle_incoming_packet(packet) {
+                    if let Err(_e) = self.handle_incoming_packet(packet) {
                         warn!("Failed to send heartbeat packet: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                     }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     bail!("{}:Channel closed", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 }
-                Err(e) => {
+                Err(_e) => {
                     warn!("Error reading from channel: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                     continue;
                 }
@@ -359,8 +359,8 @@ impl Inverter {
                             break;
                         }
                         Ok(_) => continue, // Ignore other messages
-                        Err(e) => {
-                            warn!("Error receiving from channel: {}", e);
+                        Err(_e) => {
+                            warn!("Error receiving from channel");
                             continue;
                         }
                     }
@@ -368,11 +368,6 @@ impl Inverter {
 
                 // Wait for socket data with timeout
                 read_result = async {
-                    // Add delay before read operation
-//                    let delay_ms = inverter_config.delay_ms();
-//                    debug!("Sleeping for {}ms before read operation", delay_ms);
-//                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-
                     if inverter_config.read_timeout() > 0 {
                         timeout(
                             Duration::from_secs(inverter_config.read_timeout() * READ_TIMEOUT_SECS),
@@ -384,15 +379,15 @@ impl Inverter {
                 } => {
                     let len = match read_result {
                         Ok(Ok(n)) => n,
-                        Ok(Err(e)) => bail!("Read error: {}", e),
+                        Ok(Err(_e)) => bail!("Read error"),
                         Err(_) => bail!("No data received for {} seconds", inverter_config.read_timeout() * READ_TIMEOUT_SECS),
                     };
 
                     if len == 0 {
                         // Try to process any remaining data before disconnecting
                         while let Some(packet) = decoder.decode_eof(&mut buf)? {
-                            if let Err(e) = self.handle_incoming_packet(packet) {
-                                warn!("Failed to handle final packet: {}", e);
+                            if let Err(_e) = self.handle_incoming_packet(packet) {
+                                warn!("Failed to handle final packet");
                             }
                         }
                         bail!("Connection closed by peer");
@@ -404,12 +399,12 @@ impl Inverter {
                         
                         // Validate and process the packet
                         self.compare_datalog(&packet)?;
-                        if let Packet::TranslatedData(td) = packet {
-                            self.compare_inverter(&td)?;
+                        if let Packet::TranslatedData(_) = packet {
+                            self.compare_inverter(&packet)?;
                         }
 
-                        if let Err(e) = self.handle_incoming_packet(packet_clone) {
-                            warn!("Failed to handle packet: {}", e);
+                        if let Err(_e) = self.handle_incoming_packet(packet_clone) {
+                            warn!("Failed to handle packet");
                             // Continue processing other packets even if one fails
                             continue;
                         }
@@ -426,36 +421,38 @@ impl Inverter {
         let inverter_config = self.config();
         match self.channels.from_inverter.send(ChannelData::Packet(packet.clone())) {
             Ok(_) => Ok(()),
-            Err(e) => {
+            Err(_e) => {
                 let packet_info = match &packet {
                     Packet::TranslatedData(td) => format!("TranslatedData(register={:?}, datalog={})", td.register, td.datalog),
                     Packet::ReadParam(rp) => format!("ReadParam(register={:?}, datalog={})", rp.register, rp.datalog),
                     Packet::WriteParam(wp) => format!("WriteParam(register={:?}, datalog={})", wp.register, wp.datalog),
                     Packet::Heartbeat(hb) => format!("Heartbeat(datalog={})", hb.datalog),
                 };
-                bail!("Failed to forward packet from inverter {} ({}): {}", 
+                bail!("Failed to forward packet from inverter {} ({})", 
                     inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
                     packet_info,
-                    e
                 );
             }
         }
     }
 
     pub fn compare_datalog(&self, packet: &Packet) -> Result<()> {
-        if packet.datalog != self.config().datalog().expect("datalog must be set") {
+        if packet.datalog() != self.config().datalog().expect("datalog must be set") {
             warn!(
                 "Datalog serial mismatch: packet={}, config={}. {}",
-                packet.datalog,
+                packet.datalog(),
                 self.config().datalog().map(|s| s.to_string()).unwrap_or_default(),
-                if self.config.strict_data_check {
+                if self.config.strict_data_check() {
                     "Configuration updates are disabled due to strict_data_check=true"
                 } else {
                     "Updating configuration with new datalog serial"
                 }
             );
-            if !self.config.strict_data_check {
-                if let Err(e) = self.config.update_inverter_datalog(self.config().datalog().expect("datalog must be set"), packet.datalog) {
+            if !self.config.strict_data_check() {
+                if let Err(e) = self.config.update_inverter_datalog(
+                    self.config().datalog().expect("datalog must be set"),
+                    packet.datalog(),
+                ) {
                     error!("Failed to update datalog serial in config: {}", e);
                 }
             }
@@ -464,20 +461,25 @@ impl Inverter {
     }
 
     pub fn compare_inverter(&self, packet: &Packet) -> Result<()> {
-        if packet.serial != self.config().serial().expect("serial must be set") {
-            warn!(
-                "Inverter serial mismatch: packet={}, config={}. {}",
-                packet.serial,
-                self.config().serial().map(|s| s.to_string()).unwrap_or_default(),
-                if self.config.strict_data_check {
-                    "Configuration updates are disabled due to strict_data_check=true"
-                } else {
-                    "Updating configuration with new inverter serial"
-                }
-            );
-            if !self.config.strict_data_check {
-                if let Err(e) = self.config.update_inverter_serial(self.config().serial().expect("serial must be set"), packet.serial) {
-                    error!("Failed to update inverter serial in config: {}", e);
+        if let Packet::TranslatedData(td) = packet {
+            if td.inverter != self.config().serial().expect("serial must be set") {
+                warn!(
+                    "Inverter serial mismatch: packet={}, config={}. {}",
+                    td.inverter,
+                    self.config().serial().map(|s| s.to_string()).unwrap_or_default(),
+                    if self.config.strict_data_check() {
+                        "Configuration updates are disabled due to strict_data_check=true"
+                    } else {
+                        "Updating configuration with new inverter serial"
+                    }
+                );
+                if !self.config.strict_data_check() {
+                    if let Err(e) = self.config.update_inverter_serial(
+                        self.config().serial().expect("serial must be set"),
+                        td.inverter,
+                    ) {
+                        error!("Failed to update inverter serial in config: {}", e);
+                    }
                 }
             }
         }
