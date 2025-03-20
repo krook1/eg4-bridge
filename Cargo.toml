@@ -1,8 +1,8 @@
 [package]
 name = "eg4-bridge"
-version = "0.14.0-dev"
+version = "0.20.0-dev"
 authors = ["Chris Elsworth <chris@cae.me.uk>", "Jared Mauch <jared@puck.nether.net>"]
-edition = "2021"
+edition = "2025"
 repository = "https://github.com/jaredmauch/eg4-bridge"
 
 [[bin]]

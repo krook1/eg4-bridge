@@ -508,7 +508,7 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "eg4-bridge"
-version = "0.14.0-dev"
+version = "0.20.0-dev"
 dependencies = [
  "anyhow",
  "async-trait",
