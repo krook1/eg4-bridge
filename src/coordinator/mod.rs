@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::coordinator::commands::time_register_ops::Action;
 use crate::eg4::packet::{Register, RegisterBit};
 use crate::command::Command;
+use crate::datalog_writer::DatalogWriter;
 
 use crate::eg4::{
     packet::{DeviceFunction, TranslatedData, Packet},
@@ -115,21 +116,37 @@ impl PacketStats {
 
 #[derive(Clone)]
 pub struct Coordinator {
-    config: ConfigWrapper,
+    config: Arc<ConfigWrapper>,
+    mqtt: Option<Arc<Mqtt>>,
+    influx: Option<Arc<Influx>>,
+    databases: Vec<Arc<Database>>,
+    datalog_writer: Option<Arc<DatalogWriter>>,
     channels: Channels,
     pub stats: Arc<Mutex<PacketStats>>,
 }
 
 impl Coordinator {
-    pub fn new(config: ConfigWrapper, channels: Channels) -> Self {
-        Self { 
-            config, 
+    pub fn new(config: Arc<ConfigWrapper>, channels: Channels) -> Self {
+        Self {
+            config,
+            mqtt: None,
+            influx: None,
+            databases: Vec::new(),
+            datalog_writer: None,
             channels,
             stats: Arc::new(Mutex::new(PacketStats::default())),
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
+        info!("Starting coordinator");
+
+        // Initialize services
+        self.start_mqtt()?;
+        self.start_influx()?;
+        self.start_databases()?;
+        self.start_datalog_writer()?;
+
         if self.config.mqtt().enabled() {
             tokio::select! {
                 res = self.inverter_receiver() => {
@@ -156,6 +173,8 @@ impl Coordinator {
         info!("Stopping coordinator...");
         let _ = self.channels.to_inverter.send(crate::eg4::inverter::ChannelData::Shutdown);
         let _ = self.channels.to_mqtt.send(mqtt::ChannelData::Shutdown);
+        // The datalog writer will be dropped when the Coordinator is dropped
+        // since it's wrapped in an Arc
     }
 
     async fn mqtt_receiver(&self) -> Result<()> {
@@ -245,7 +264,7 @@ impl Coordinator {
         let write_inverter = commands::write_inverter::WriteInverter::new(
             self.channels.clone(),
             inverter.clone(),
-            self.config.clone(),
+            (*self.config).clone(),
         );
 
         match command {
@@ -415,7 +434,7 @@ impl Coordinator {
         commands::time_register_ops::ReadTimeRegister::new(
             self.channels.clone(),
             inverter.clone(),
-            self.config.clone(),
+            (*self.config).clone(),
             action,
         )
         .run()
@@ -460,7 +479,7 @@ impl Coordinator {
         commands::time_register_ops::SetTimeRegister::new(
             self.channels.clone(),
             inverter.clone(),
-            self.config.clone(),
+            (*self.config).clone(),
             action,
             values,
         )
@@ -960,6 +979,44 @@ impl Coordinator {
             }
         }
 
+        Ok(())
+    }
+
+    fn start_mqtt(&mut self) -> Result<()> {
+        if self.config.mqtt().enabled() {
+            info!("Initializing MQTT");
+            let mqtt = Mqtt::new((*self.config).clone(), self.channels.clone());
+            self.mqtt = Some(Arc::new(mqtt));
+        }
+        Ok(())
+    }
+
+    fn start_influx(&mut self) -> Result<()> {
+        if self.config.influx().enabled() {
+            info!("Initializing InfluxDB");
+            let influx = Influx::new((*self.config).clone(), self.channels.clone());
+            self.influx = Some(Arc::new(influx));
+        }
+        Ok(())
+    }
+
+    fn start_databases(&mut self) -> Result<()> {
+        for db in &self.config.databases() {
+            if db.enabled() {
+                info!("Initializing database {}", db.url());
+                let database = Database::new(db.clone(), self.channels.clone());
+                self.databases.push(Arc::new(database));
+            }
+        }
+        Ok(())
+    }
+
+    fn start_datalog_writer(&mut self) -> Result<()> {
+        if let Some(path) = self.config.datalog_file() {
+            info!("Initializing datalog writer");
+            let writer = DatalogWriter::new(&path)?;
+            self.datalog_writer = Some(Arc::new(writer));
+        }
         Ok(())
     }
 }

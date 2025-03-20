@@ -19,6 +19,8 @@ pub mod error;
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::prelude::*;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 // Helper struct to manage component shutdown
 #[derive(Clone)]
@@ -99,7 +101,8 @@ pub async fn app() -> Result<()> {
     let register_cache = RegisterCache::new(channels.clone());
     
     info!("  Creating Coordinator...");
-    let coordinator = Coordinator::new(config.clone(), channels.clone());
+    let config = ConfigWrapper::new(config)?;
+    let coordinator = Coordinator::new(Arc::new(config.clone()), channels.clone());
     
     info!("  Creating Scheduler...");
     let scheduler = Scheduler::new(config.clone(), channels.clone());
@@ -242,5 +245,47 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
     }
     let futures = inverters.iter().map(|i| i.start());
     futures::future::join_all(futures).await;
+    Ok(())
+}
+
+pub async fn run(config: Config) -> Result<()> {
+    info!("Starting up...");
+
+    info!("  Creating Channels...");
+    let channels = Channels::new();
+
+    info!("  Creating Coordinator...");
+    let config = Arc::new(ConfigWrapper::from_config(config));
+    let coordinator = Coordinator::new(config.clone(), channels.clone());
+
+    info!("  Creating Scheduler...");
+    let scheduler = scheduler::Scheduler::new((*config).clone(), channels.clone());
+
+    info!("  Creating Register Cache...");
+    let register_cache = register_cache::RegisterCache::new(channels.clone());
+
+    info!("  Starting Register Cache...");
+    let register_cache_handle = tokio::spawn(async move {
+        if let Err(e) = register_cache.start().await {
+            error!("register_cache error: {}", e);
+        }
+    });
+
+    info!("  Starting Scheduler...");
+    let scheduler_handle = tokio::spawn(async move {
+        if let Err(e) = scheduler.start().await {
+            error!("scheduler error: {}", e);
+        }
+    });
+
+    info!("  Starting Coordinator...");
+    let coordinator_handle = tokio::spawn(async move {
+        if let Err(e) = coordinator.start().await {
+            error!("coordinator error: {}", e);
+        }
+    });
+
+    futures::try_join!(register_cache_handle, scheduler_handle, coordinator_handle)?;
+
     Ok(())
 }

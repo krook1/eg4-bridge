@@ -267,6 +267,12 @@ impl ConfigWrapper {
         })
     }
 
+    pub fn from_config(config: Config) -> Self {
+        Self {
+            config: Arc::new(Mutex::new(config)),
+        }
+    }
+
     pub fn inverters(&self) -> Vec<Inverter> {
         self.config.lock().unwrap().inverters.clone()
     }

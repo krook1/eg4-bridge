@@ -4,34 +4,51 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use log::{info, error};
 
 #[derive(Debug)]
 pub struct DatalogWriter {
     file: Mutex<std::fs::File>,
+    path: String,
 }
 
 impl DatalogWriter {
     pub fn new(path: &str) -> Result<Self> {
+        info!("Opening datalog file at {}", path);
+        
         // Ensure the directory exists
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }
 
         // Open file in append mode, create if doesn't exist
-        let file = OpenOptions::new()
+        let file = match OpenOptions::new()
             .create(true)
             .append(true)
-            .open(path)?;
+            .open(path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to open datalog file {}: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         // Set file permissions to 0644
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
+            if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)) {
+                error!("Failed to set permissions on datalog file {}: {}", path, e);
+                return Err(e.into());
+            }
         }
+
+        info!("Successfully opened datalog file with permissions 0644");
 
         Ok(Self {
             file: Mutex::new(file),
+            path: path.to_string(),
         })
     }
 
@@ -68,10 +85,19 @@ impl DatalogWriter {
         let json_string = serde_json::to_string(&json_value)?;
         
         let mut file = self.file.lock().map_err(|_| anyhow::anyhow!("Failed to lock datalog file"))?;
-        writeln!(file, "{}", json_string)?;
-        file.flush()?;
-
-        Ok(())
+        match writeln!(file, "{}", json_string) {
+            Ok(_) => {
+                if let Err(e) = file.flush() {
+                    error!("Failed to flush datalog file {}: {}", self.path, e);
+                    return Err(e.into());
+                }
+                Ok(())
+            },
+            Err(e) => {
+                error!("Failed to write to datalog file {}: {}", self.path, e);
+                Err(e.into())
+            }
+        }
     }
 }
 

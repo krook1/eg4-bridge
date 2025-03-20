@@ -1,5 +1,7 @@
 use crate::prelude::*;
 use sqlx::{any::AnyConnectOptions, Pool, Any};
+use std::sync::RwLock;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelData {
@@ -19,7 +21,7 @@ enum DatabaseType {
 pub struct Database {
     config: config::Database,
     channels: Channels,
-    pool: RefCell<Option<Pool<Any>>>,
+    pool: Arc<RwLock<Option<Pool<Any>>>>,
 }
 
 impl Database {
@@ -29,7 +31,7 @@ impl Database {
         Self {
             config,
             channels,
-            pool: RefCell::new(None),
+            pool: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -66,12 +68,12 @@ impl Database {
             .acquire_timeout(std::time::Duration::from_secs(30))
             .connect_with(options)
             .await?;
-        *self.pool.borrow_mut() = Some(pool);
+        *self.pool.write().map_err(|_| anyhow::anyhow!("Failed to acquire write lock"))? = Some(pool);
         Ok(())
     }
 
     pub async fn connection(&self) -> Result<Pool<Any>> {
-        match &*self.pool.borrow() {
+        match &*self.pool.read().map_err(|_| anyhow::anyhow!("Failed to acquire read lock"))? {
             Some(pool) => Ok(pool.clone()),
             None => Err(anyhow::anyhow!("database.rs:Database not connected"))
         }
