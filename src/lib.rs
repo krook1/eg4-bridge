@@ -3,6 +3,7 @@ pub mod command;
 pub mod config;
 pub mod coordinator;
 pub mod database;
+pub mod datalog_writer;
 pub mod home_assistant;
 pub mod influx;
 pub mod mqtt;

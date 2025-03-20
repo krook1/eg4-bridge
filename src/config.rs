@@ -23,6 +23,12 @@ pub struct Config {
 
     #[serde(default = "Config::default_homeassistant_enabled")]
     pub homeassistant_enabled: bool,
+
+    #[serde(default = "Config::default_strict_data_check")]
+    pub strict_data_check: bool,
+
+    /// Optional path to output datalog data in JSON format
+    pub datalog_file: Option<String>,
 }
 
 // Inverter {{{
@@ -367,6 +373,10 @@ impl ConfigWrapper {
     pub fn homeassistant_enabled(&self) -> bool {
         self.config.lock().unwrap().homeassistant_enabled
     }
+
+    pub fn datalog_file(&self) -> Option<String> {
+        self.config.lock().unwrap().datalog_file.clone()
+    }
 }
 
 impl Config {
@@ -522,6 +532,10 @@ impl Config {
     }
 
     fn default_homeassistant_enabled() -> bool {
+        false
+    }
+
+    fn default_strict_data_check() -> bool {
         false
     }
 }

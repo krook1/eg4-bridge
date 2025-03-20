@@ -1,11 +1,29 @@
 loglevel: info
+# If true, serial and datalog values in the inverter must not be updated
+# This is a safety feature to prevent accidental configuration changes
+strict_data_check: false
+# Optional path to output datalog data in JSON format
+# Each entry will include:
+# - utc_timestamp: Unix timestamp in UTC
+# - serial: Inverter serial number
+# - datalog: Datalog serial number
+# - register_type: "hold" or "input" (optional)
+# - raw_data: Object with register numbers as keys and hex values
+datalog_file: /var/log/eg4/datalog.json
 homeassistant_enabled: false
+# this permits writing to the inverter which may change your
+# settings unexpectedly - change from true to false if you know
+# what you are doing - i found it changed the charge settings for
+# my battery in some unexpected ways
+read_only: false
 
 inverters:
 - enabled: true
   host: 192.168.0.10
   port: 8000
+  # if you specify the wrong one it will just update for that host IP
   serial: 5555555555
+  # if you specify the wrong one it will just update for that host IP
   datalog: 2222222222
   heartbeats: false
   publish_holdings_on_connect: false
@@ -15,10 +33,9 @@ inverters:
   read_timeout: 900
   # Size of register blocks to read (1-40, default: 40)
   register_block_size: 40
-  # Delay between read operations in milliseconds (recommended minimum: 1000)
-  delay_ms: 1000
   # Whether to operate in read-only mode, preventing any write operations (default: false)
-  read_only: false
+  read_only: true
+# a whole new inverter
 - enabled: false
   host: 192.168.0.163
   port: 8000
@@ -32,8 +49,8 @@ inverters:
   read_timeout: 900
   # Size of register blocks to read (1-40, default: 40)
   register_block_size: 40
-  # Delay between read operations in milliseconds (recommended minimum: 1000)
-  delay_ms: 1000
+  # Delay between read operations in milliseconds 
+  # delay_ms: 1000
   # Whether to operate in read-only mode, preventing any write operations (default: false)
   read_only: false
 

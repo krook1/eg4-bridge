@@ -403,9 +403,9 @@ impl Inverter {
                         let packet_clone = packet.clone();
                         
                         // Validate and process the packet
-                        self.compare_datalog(packet.datalog());
+                        self.compare_datalog(&packet)?;
                         if let Packet::TranslatedData(td) = packet {
-                            self.compare_inverter(td.inverter);
+                            self.compare_inverter(&td)?;
                         }
 
                         if let Err(e) = self.handle_incoming_packet(packet_clone) {
@@ -442,37 +442,45 @@ impl Inverter {
         }
     }
 
-    fn compare_datalog(&self, packet: Serial) {
-        if packet != self.config().datalog().expect("datalog must be set") {
+    pub fn compare_datalog(&self, packet: &Packet) -> Result<()> {
+        if packet.datalog != self.config().datalog().expect("datalog must be set") {
             warn!(
-                "datalog serial mismatch found; packet={}, config={} - updating configuration",
-                packet,
-                self.config().datalog().map(|s| s.to_string()).unwrap_or_default()
+                "Datalog serial mismatch: packet={}, config={}. {}",
+                packet.datalog,
+                self.config().datalog().map(|s| s.to_string()).unwrap_or_default(),
+                if self.config.strict_data_check {
+                    "Configuration updates are disabled due to strict_data_check=true"
+                } else {
+                    "Updating configuration with new datalog serial"
+                }
             );
-            
-            // Update the datalog serial in the configuration
-            if let Some(old_datalog) = self.config().datalog() {
-                if let Err(e) = self.config.update_inverter_datalog(old_datalog, packet) {
-                    error!("Failed to update datalog serial: {}", e);
+            if !self.config.strict_data_check {
+                if let Err(e) = self.config.update_inverter_datalog(self.config().datalog().expect("datalog must be set"), packet.datalog) {
+                    error!("Failed to update datalog serial in config: {}", e);
                 }
             }
         }
+        Ok(())
     }
 
-    fn compare_inverter(&self, packet: Serial) {
-        if packet != self.config().serial().expect("serial must be set") {
+    pub fn compare_inverter(&self, packet: &Packet) -> Result<()> {
+        if packet.serial != self.config().serial().expect("serial must be set") {
             warn!(
-                "inverter serial mismatch found; packet={}, config={} - updating configuration",
-                packet,
-                self.config().serial().map(|s| s.to_string()).unwrap_or_default()
+                "Inverter serial mismatch: packet={}, config={}. {}",
+                packet.serial,
+                self.config().serial().map(|s| s.to_string()).unwrap_or_default(),
+                if self.config.strict_data_check {
+                    "Configuration updates are disabled due to strict_data_check=true"
+                } else {
+                    "Updating configuration with new inverter serial"
+                }
             );
-            
-            // Update the inverter serial in the configuration
-            if let Some(old_serial) = self.config().serial() {
-                if let Err(e) = self.config.update_inverter_serial(old_serial, packet) {
-                    error!("Failed to update inverter serial: {}", e);
+            if !self.config.strict_data_check {
+                if let Err(e) = self.config.update_inverter_serial(self.config().serial().expect("serial must be set"), packet.serial) {
+                    error!("Failed to update inverter serial in config: {}", e);
                 }
             }
         }
+        Ok(())
     }
 }
