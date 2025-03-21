@@ -3,11 +3,12 @@
 import base64
 import struct
 import json
+import argparse
 from typing import Dict, Any
 
 def load_register_definitions() -> Dict[int, Any]:
     """Load register definitions from JSON file."""
-    with open('doc/eg4_registers.json', 'r') as f:
+    with open('eg4_registers.json', 'r') as f:
         data = json.load(f)
         # Create a dictionary mapping register numbers to their definitions
         registers = {}
@@ -83,16 +84,25 @@ def parse_register_value(data: bytes, reg_def: Dict[str, Any], offset: int) -> A
 
         return value
 
-def main():
-    # Load register definitions
-    registers = load_register_definitions()
-
-    # Read valueFrame from portal file
-    with open('doc/eg1.portal.txt', 'r') as f:
+def process_portal_file(filename: str, registers: Dict[int, Any]):
+    """Process a single portal file and print its register values."""
+    print(f"\nProcessing file: {filename}")
+    print("=" * 50)
+    
+    # Read valueFrame and startRegister from portal file
+    with open(filename, 'r') as f:
+        value_frame = None
+        start_register = 0
         for line in f:
             if line.startswith('valueFrame'):
                 value_frame = line.split('\t')[1].strip().strip('"')
-                break
+            elif line.startswith('startRegister'):
+                start_register = int(line.split('\t')[1].strip())
+        
+        if not value_frame:
+            print(f"Error: No valueFrame found in {filename}")
+            return
+        print(f"Starting at register {start_register}")
 
     # Decode valueFrame
     data = decode_value_frame(value_frame)
@@ -107,7 +117,7 @@ def main():
     print("\nRegister Values:")
     print("-" * 50)
     
-    register_number = 0  # Start at register 0
+    register_number = start_register  # Start at the specified register number
     while offset < len(data):
         try:
             if register_number in registers:
@@ -131,14 +141,29 @@ def main():
                 else:
                     offset += 2  # Default to 2 bytes for other types
             else:
-                # Skip unknown registers
-                offset += 2
+                # Print unknown registers with decimal, hex, and binary values
+                value = struct.unpack('>H', data[offset:offset+2])[0]
+                print(f"Register unknown-{register_number}: {value} (0x{value:04X}, 0b{value:016b})")
+                offset += 2  # Unknown registers use 2 bytes
             
             register_number += 1
             
         except Exception as e:
             print(f"Error at offset {offset}: {e}")
             break
+
+def main():
+    # Set up command line argument parsing
+    parser = argparse.ArgumentParser(description='Parse EG4 portal files and display register values')
+    parser.add_argument('files', nargs='+', help='One or more portal files to process')
+    args = parser.parse_args()
+
+    # Load register definitions
+    registers = load_register_definitions()
+
+    # Process each file
+    for filename in args.files:
+        process_portal_file(filename, registers)
 
 if __name__ == '__main__':
     main() 
