@@ -20,7 +20,6 @@ const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::prelude::*;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 // Helper struct to manage component shutdown
 #[derive(Clone)]

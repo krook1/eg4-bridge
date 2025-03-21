@@ -618,7 +618,15 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            debug!("  {}", parse_input::parse_input_register(*reg, (*value).into()));
+                            let parsed = parse_input::parse_input_register(*reg, (*value).into());
+                            debug!("  {}", parsed);
+                        }
+
+                        // Write to datalog file if enabled
+                        if let Some(writer) = &self.datalog_writer {
+                            if let Err(e) = writer.write_input_data(td.inverter, td.datalog, &pairs) {
+                                error!("Failed to write to datalog file: {}", e);
+                            }
                         }
 
                         if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
@@ -645,7 +653,15 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            debug!("  {}", parse_hold::parse_hold_register(*reg, *value));
+                            let parsed = parse_hold::parse_hold_register(*reg, *value);
+                            debug!("  {}", parsed);
+                        }
+
+                        // Write to datalog file if enabled
+                        if let Some(writer) = &self.datalog_writer {
+                            if let Err(e) = writer.write_hold_data(td.inverter, td.datalog, &pairs) {
+                                error!("Failed to write to datalog file: {}", e);
+                            }
                         }
                         
                         if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
