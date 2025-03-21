@@ -588,16 +588,14 @@ Addr     Item                           Unit     default    Note
          ResetSetting. BMSDischgSWOn      6      0/1        0-null 1- turn on discharge switch
  11
          ResetSetting. InvReboot          7      0/1        0-null 1- restart inverter
-
-                                                                                         13 / 28
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
-     ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
+         ResetSetting.rsvd            0/1
 
 12
      Time_Year                    17-255     year
@@ -608,10 +606,10 @@ Addr     Item                           Unit     default    Note
 14
      Time_Minute                  0-59       Minute
      Time_Second                  0-59       Second
-15
-     Com Addr                     0-150      mailing address
-16                                           Language 0-English 1-
-     Language                     0-1        German
+15   Com Addr                     0-150      mailing address
+
+16   Language                     0-65535           Language 0-English
+
 17
 
 18
@@ -1413,49 +1411,49 @@ code       Description                       Remark
 
                          Table 10 Fault code and warning code definition
 
-Bit0-                                                                                        Warning
-31      Fault Description                        FaultCode     Warning Description         Code
-                                                               Battery communication
-  0   Internal communication fault 1             E000          failure                     W000
-                                                               AFCI communication
-  1   Model fault                                E001          failure                     W001
-  2   rsvd                                       E002          AFCI High                   W002
-                                                               Meter communication
-  3   rsvd                                       E003          failure                     W003
-                                                               Both charge and
-                                                               discharge forbidden by
-  4   rsvd                                       E004          battery                     W004
-  5   rsvd                                       E005          Auto test failed            W005
-  6   rsvd                                       E006          rsvd                        W006
-                                                               LCD communication
-  7   rsvd                                       E007          failure                     W007
-                                                               FW version
-  8   Paralleling CANcommunication lost          E008          mismatching                 W008
-  9   Master unit lost in paralleling system     E009          Fan stuck                   W009
+Bit0-31
+      Fault Description                        FaultCode   Warning Description         WarningCode
+                                                           Battery communication
+  0   Internal communication fault 1             E000      failure                     W000
+                                                           AFCI communication
+  1   Model fault                                E001      failure                     W001
+  2   rsvd                                       E002      AFCI High                   W002
+                                                           Meter communication
+  3   rsvd                                       E003      failure                     W003
+                                                           Both charge and
+                                                           discharge forbidden by
+  4   rsvd                                       E004      battery                     W004
+  5   rsvd                                       E005      Auto test failed            W005
+  6   rsvd                                       E006      rsvd                        W006
+                                                           LCD communication
+  7   rsvd                                       E007      failure                     W007
+                                                           FW version
+  8   Paralleling CANcommunication lost          E008      mismatching                 W008
+  9   Master unit lost in paralleling system     E009      Fan stuck                   W009
       Multiple master units in paralleling
- 10   system                                     E010          rsvd                        W010
-      AC input inconsistent in paralleling                     Parallel number out of
- 11   system                                     E011          range                       W011
- 12   UPS short                                  E012          rsvd                        W012
- 13   Reverse current on UPS output              E013          rsvd                        W013
- 14   BUS short                                  E014          rsvd                        W014
-      Grid phases inconsistent in 3phase                       Battery reverse
- 15   paralleling system                         E015          connection                  W015
- 16   Relay Check Fault                          E016          Grid power outage           W016
- 17   Internal communication fault 2             E017          Grid voltage out of range   W017
- 18   Internal communication fault 3             E018          Grid frequency out of range W018
- 19   BUS Voltage high                           E019          rsvd                        W019
- 20   EPS connection fault                       E020          PV insulation low           W020
- 21   PV Voltage high，                          E021          Leakage current high        W021
- 22   Over currnent protection                   E022          DCI high                    W022
- 23   Neutral fault                              E023          PV short，                  W023
- 24   PV short，                                 E024          rsvd                        W024
- 25   Radiator temperature out of range          E025          Battery voltage high        W025
- 26   Internal Fault                             E026          Battery voltage low         W026
+ 10   system                                     E010      rsvd                        W010
+      AC input inconsistent in paralleling                 Parallel number out of
+ 11   system                                     E011      range                       W011
+ 12   UPS short                                  E012      rsvd                        W012
+ 13   Reverse current on UPS output              E013      rsvd                        W013
+ 14   BUS short                                  E014      rsvd                        W014
+      Grid phases inconsistent in 3phase                   Battery reverse
+ 15   paralleling system                         E015      connection                  W015
+ 16   Relay Check Fault                          E016      Grid power outage           W016
+ 17   Internal communication fault 2             E017      Grid voltage out of range   W017
+ 18   Internal communication fault 3             E018      Grid frequency out of range W018
+ 19   BUS Voltage high                           E019      rsvd                        W019
+ 20   EPS connection fault                       E020      PV insulation low           W020
+ 21   PV Voltage high，                          E021      Leakage current high        W021
+ 22   Over currnent protection                   E022      DCI high                    W022
+ 23   Neutral fault                              E023      PV short，                  W023
+ 24   PV short，                                 E024      rsvd                        W024
+ 25   Radiator temperature out of range          E025      Battery voltage high        W025
+ 26   Internal Fault                             E026      Battery voltage low         W026
       Sample inconsistent between Main
- 27   CPU and redundant CPU                      E027          Battery open circuit        W027
- 28   rsvd                                       E028          EPS overload                W028
- 29   rsvd                                       E029          EPS voltage high            W029
-                                                               Meter reverse
- 30   rsvd                                       E030          connection                  W030
- 31   Internal communication fault 4             E031          DCV high                    W031
+ 27   CPU and redundant CPU                      E027      Battery open circuit        W027
+ 28   rsvd                                       E028      EPS overload                W028
+ 29   rsvd                                       E029      EPS voltage high            W029
+                                                           Meter reverse
+ 30   rsvd                                       E030      connection                  W030
+ 31   Internal communication fault 4             E031      DCV high                    W031
