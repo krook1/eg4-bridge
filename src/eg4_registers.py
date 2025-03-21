@@ -29,13 +29,15 @@ class RegisterMap:
     def get_register(self, number: int) -> Optional[Register]:
         return self.registers.get(number)
     
-    def decode_registers(self, raw_data: Dict[str, str]) -> Dict[str, Union[int, float]]:
+    def decode_registers(self, raw_data: Dict[str, str], show_unknown: bool = False, register_type: str = "unknown") -> Dict[str, Union[int, float]]:
         """Decode a dictionary of raw register values"""
         decoded = {}
         for reg_num, hex_value in raw_data.items():
             reg = self.get_register(int(reg_num))
             if reg:
                 decoded[reg.name] = reg.decode_value(hex_value)
+            elif show_unknown:
+                decoded[f"{register_type}_unknown_{reg_num}"] = int(hex_value, 16)
         return decoded
 
 class DatalogEntry:
@@ -59,9 +61,9 @@ class DatalogEntry:
             utc_timestamp=data['utc_timestamp']
         )
 
-    def decode_values(self, register_map: RegisterMap) -> Dict[str, Union[int, float]]:
+    def decode_values(self, register_map: RegisterMap, show_unknown: bool = False) -> Dict[str, Union[int, float]]:
         """Decode the raw register values using the provided register map"""
-        return register_map.decode_registers(self.raw_data)
+        return register_map.decode_registers(self.raw_data, show_unknown, self.register_type)
 
 def load_datalog_file(filepath: str) -> List[DatalogEntry]:
     """Load and parse a datalog.json file"""
@@ -79,6 +81,7 @@ def load_register_map(filepath: str) -> RegisterMap:
     
     registers = []
     for register_type in data.get('registers', []):
+        reg_type = register_type.get('register_type', 'unknown').lower()
         for reg_data in register_type.get('register_map', []):
             try:
                 # Get required fields with defaults for missing values
@@ -93,9 +96,14 @@ def load_register_map(filepath: str) -> RegisterMap:
                 except (ValueError, TypeError):
                     scaling = 1.0
                 
+                # Use type-based shortname if none provided
+                shortname = reg_data.get('shortname')
+                if not shortname:
+                    shortname = f"{reg_type}-{reg_number}"
+                
                 reg = Register(
                     number=reg_number,
-                    name=reg_data.get('shortname', f"register_{reg_number}"),  # Use register number if no shortname
+                    name=shortname,
                     description=reg_data.get('description', ''),
                     data_type=reg_data.get('datatype', 'uint16'),  # Default to uint16 if not specified
                     access='read_only' if reg_data.get('read_only') == 'true' else 'read_write',
@@ -124,6 +132,8 @@ if __name__ == "__main__":
                       help='Show units in output')
     parser.add_argument('--human', action='store_true',
                       help='Show human readable timestamps')
+    parser.add_argument('-u', '--unknown', action='store_true',
+                      help='Show undefined registers in output')
     
     args = parser.parse_args()
     
@@ -144,12 +154,14 @@ if __name__ == "__main__":
     # Process each entry
     for entry in entries:
         # Decode register values
-        decoded_values = entry.decode_values(register_map)
+        decoded_values = entry.decode_values(register_map, args.unknown)
         
         # Print decoded values
         for name, value in decoded_values.items():
             reg = next((r for r in register_map.registers.values() if r.name == name), None)
             if reg:
                 unit_str = f" {reg.unit}" if reg.unit and args.verbose else ""
-                timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if args.human else int(entry.timestamp.timestamp())
-                print(f"{timestamp} {entry.serial} {entry.datalog} {name}: {value}{unit_str}") 
+            else:
+                unit_str = " (undefined)"
+            timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if args.human else int(entry.timestamp.timestamp())
+            print(f"{timestamp} {entry.serial} {entry.datalog} {name}: {value}{unit_str}") 
