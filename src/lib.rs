@@ -101,23 +101,23 @@ pub async fn app() -> Result<()> {
     let register_cache = RegisterCache::new(channels.clone());
     
     info!("  Creating Coordinator...");
-    let config = ConfigWrapper::new(config)?;
-    let coordinator = Coordinator::new(Arc::new(config.clone()), channels.clone());
+    let config = Arc::new(config);
+    let coordinator = Coordinator::new(config.clone(), channels.clone());
     
     info!("  Creating Scheduler...");
-    let scheduler = Scheduler::new(config.clone(), channels.clone());
+    let scheduler = Scheduler::new((*config).clone(), channels.clone());
     
     info!("  Creating MQTT client...");
-    let mqtt = Mqtt::new(config.clone(), channels.clone());
+    let mqtt = Mqtt::new((*config).clone(), channels.clone());
     
     info!("  Creating InfluxDB client...");
-    let influx = Influx::new(config.clone(), channels.clone());
+    let influx = Influx::new((*config).clone(), channels.clone());
 
     info!("  Creating Inverters...");
     let inverters: Vec<_> = config
         .enabled_inverters()
         .into_iter()
-        .map(|inverter| Inverter::new(config.clone(), &inverter, channels.clone()))
+        .map(|inverter| Inverter::new((*config).clone(), &inverter, channels.clone()))
         .collect();
     info!("    Created {} inverter instances", inverters.len());
 
@@ -174,7 +174,7 @@ pub async fn app() -> Result<()> {
     // Start Coordinator before inverters to ensure it's ready to receive messages
     info!("Starting Coordinator...");
     let _coordinator_handle = tokio::spawn({
-        let coordinator = coordinator.clone();
+        let mut coordinator = coordinator.clone();
         async move {
             if let Err(e) = coordinator.start().await {
                 error!("Coordinator error: {}", e);
@@ -256,7 +256,7 @@ pub async fn run(config: Config) -> Result<()> {
 
     info!("  Creating Coordinator...");
     let config = Arc::new(ConfigWrapper::from_config(config));
-    let coordinator = Coordinator::new(config.clone(), channels.clone());
+    let mut coordinator = Coordinator::new(config.clone(), channels.clone());
 
     info!("  Creating Scheduler...");
     let scheduler = scheduler::Scheduler::new((*config).clone(), channels.clone());
