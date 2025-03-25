@@ -131,7 +131,7 @@ impl Influx {
                         // Add the field value
                         line = line.insert_field(name.as_str(), value);
                         points.push(line.build());
-                        info!("Preparing InfluxDB point: measurement={}, serial={}, datalog={}, field={}, value={}, timestamp={}", 
+                        trace!("Preparing InfluxDB point: measurement={}, serial={}, datalog={}, field={}, value={}, timestamp={}", 
                             MEASUREMENT, serial, datalog, name, value, timestamp);
                     }
 
