@@ -629,6 +629,28 @@ impl Coordinator {
                             }
                         }
 
+                        // Send to InfluxDB if enabled
+                        if self.config.influx().enabled() {
+                            let mut data = serde_json::json!({
+                                "time": chrono::Utc::now().timestamp(),
+                                "serial": td.inverter.to_string(),
+                                "datalog": td.datalog.to_string(),
+                                "raw_data": {}
+                            });
+
+                            // Add raw register data
+                            for (reg, value) in &pairs {
+                                data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
+                            }
+
+                            if let Err(e) = self.channels.to_influx.send(influx::ChannelData::InputData(data)) {
+                                error!("Failed to send data to InfluxDB: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.influx_errors += 1;
+                                }
+                            }
+                        }
+
                         if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
                             error!("Failed to publish input message: {}", e);
                             if let Ok(mut stats) = self.stats.lock() {
@@ -661,6 +683,28 @@ impl Coordinator {
                         if let Some(writer) = &self.datalog_writer {
                             if let Err(e) = writer.write_hold_data(td.inverter, td.datalog, &pairs) {
                                 error!("Failed to write to datalog file: {}", e);
+                            }
+                        }
+
+                        // Send to InfluxDB if enabled
+                        if self.config.influx().enabled() {
+                            let mut data = serde_json::json!({
+                                "time": chrono::Utc::now().timestamp(),
+                                "serial": td.inverter.to_string(),
+                                "datalog": td.datalog.to_string(),
+                                "raw_data": {}
+                            });
+
+                            // Add raw register data
+                            for (reg, value) in &pairs {
+                                data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
+                            }
+
+                            if let Err(e) = self.channels.to_influx.send(influx::ChannelData::HoldData(data)) {
+                                error!("Failed to send data to InfluxDB: {}", e);
+                                if let Ok(mut stats) = self.stats.lock() {
+                                    stats.influx_errors += 1;
+                                }
                             }
                         }
                         

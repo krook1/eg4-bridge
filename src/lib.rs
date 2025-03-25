@@ -41,15 +41,27 @@ impl Components {
         let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
         let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
         
-        // Give a moment for shutdown signals to be processed
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // Give more time for shutdown signals to be processed
+        info!("Waiting for components to process shutdown signals...");
+        std::thread::sleep(std::time::Duration::from_secs(2));
 
-        // Print final statistics
-        if let Ok(stats) = self.coordinator.stats.lock() {
-            info!("Final Statistics:");
-            stats.print_summary();
-        } else {
-            error!("Failed to lock statistics for printing");
+        // Try to print statistics with retries
+        let mut retry_count = 0;
+        const MAX_RETRIES: u32 = 3;
+        while retry_count < MAX_RETRIES {
+            if let Ok(stats) = self.coordinator.stats.lock() {
+                info!("Final Statistics:");
+                stats.print_summary();
+                break;
+            } else {
+                error!("Failed to lock statistics for printing (attempt {}/{}), retrying...", 
+                    retry_count + 1, MAX_RETRIES);
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                retry_count += 1;
+            }
+        }
+        if retry_count == MAX_RETRIES {
+            error!("Failed to print statistics after {} attempts", MAX_RETRIES);
         }
 
         // Now stop all components

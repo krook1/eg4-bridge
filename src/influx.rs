@@ -10,6 +10,7 @@ static MEASUREMENT: &str = "eg4_inverter";
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum ChannelData {
     InputData(serde_json::Value),
+    HoldData(serde_json::Value),
     Shutdown,
 }
 
@@ -81,7 +82,7 @@ impl Influx {
                     info!("InfluxDB sender received shutdown signal");
                     break;
                 }
-                Ok(InputData(data)) => {
+                Ok(InputData(data)) | Ok(HoldData(data)) => {
                     let mut points = Vec::new();
                     
                     // Extract common fields
