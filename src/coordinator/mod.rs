@@ -147,6 +147,20 @@ impl Coordinator {
         self.start_databases()?;
         self.start_datalog_writer()?;
 
+        // Start periodic statistics printing
+        let stats = self.stats.clone();
+        let config = self.config.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // Print every hour
+            loop {
+                interval.tick().await;
+                if let Ok(stats) = stats.lock() {
+                    info!("Periodic Statistics:");
+                    stats.print_summary();
+                }
+            }
+        });
+
         if self.config.mqtt().enabled() {
             tokio::select! {
                 res = self.inverter_receiver() => {
@@ -539,6 +553,9 @@ impl Coordinator {
                                 inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
                             if let Ok(mut stats) = self.stats.lock() {
                                 stats.modbus_errors += 1;
+                                // Print statistics after significant error
+                                info!("Statistics after Modbus error:");
+                                stats.print_summary();
                             }
                             return Ok(());  // Return early as this is an error response
                         }
@@ -849,6 +866,9 @@ impl Coordinator {
                             .entry(serial)
                             .or_insert(0);
                         *count += 1;
+                        // Print statistics after disconnection
+                        info!("Statistics after inverter disconnection:");
+                        stats.print_summary();
                     }
                 }
                 inverter::ChannelData::Shutdown => {

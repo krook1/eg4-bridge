@@ -33,6 +33,10 @@ pub struct Config {
     /// Path to register definitions JSON file
     pub register_file: Option<String>,
 
+    /// Interval in seconds between reading input registers (default: 60)
+    #[serde(default = "Config::default_register_read_interval")]
+    pub register_read_interval: u64,
+
     /// Output options
     #[serde(default = "Config::default_verbose")]
     pub verbose: bool,
@@ -64,6 +68,8 @@ pub struct Inverter {
     pub register_block_size: Option<u16>,
     pub delay_ms: Option<u64>,
     pub read_only: Option<bool>,
+    /// Interval in seconds between reading input registers (optional, overrides global setting)
+    pub register_read_interval: Option<u64>,
 }
 impl Inverter {
     pub fn enabled(&self) -> bool {
@@ -87,31 +93,35 @@ impl Inverter {
     }
 
     pub fn heartbeats(&self) -> bool {
-        self.heartbeats == Some(true)
+        self.heartbeats.unwrap_or(false)
     }
 
     pub fn publish_holdings_on_connect(&self) -> bool {
-        self.publish_holdings_on_connect == Some(true)
+        self.publish_holdings_on_connect.unwrap_or(false)
     }
 
     pub fn read_timeout(&self) -> u64 {
-        self.read_timeout.unwrap_or(900) // 15 minutes
+        self.read_timeout.unwrap_or(900)
     }
 
     pub fn use_tcp_nodelay(&self) -> bool {
-        self.use_tcp_nodelay.unwrap_or(true)  // Default to true for backward compatibility
+        self.use_tcp_nodelay.unwrap_or(true)
     }
 
     pub fn register_block_size(&self) -> u16 {
-        self.register_block_size.unwrap_or(40)  // Default to 40 for backward compatibility
+        self.register_block_size.unwrap_or(40)
     }
 
-    pub fn delay_ms(&self) -> u64 {
-        self.delay_ms.unwrap_or(1000)  // Default to 1000ms if not specified
+    pub fn delay_ms(&self) -> Option<u64> {
+        self.delay_ms
     }
 
     pub fn read_only(&self) -> bool {
-        self.read_only == Some(true)  // Default to false if not specified
+        self.read_only.unwrap_or(false)
+    }
+
+    pub fn register_read_interval(&self) -> Option<u64> {
+        self.register_read_interval
     }
 } // }}}
 
@@ -260,38 +270,29 @@ impl Scheduler {
     }
 } // }}}
 
-pub struct ConfigWrapper {
-    config: Arc<Mutex<Config>>,
-}
-
-impl Clone for ConfigWrapper {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-        }
-    }
-}
+#[derive(Clone)]
+pub struct ConfigWrapper(Arc<Mutex<Config>>);
 
 impl ConfigWrapper {
     pub fn new(file: String) -> Result<Self> {
         let config = Config::new(file)?;
-        Ok(Self {
-            config: Arc::new(Mutex::new(config)),
-        })
+        Ok(Self(Arc::new(Mutex::new(config))))
     }
 
     pub fn from_config(config: Config) -> Self {
-        Self {
-            config: Arc::new(Mutex::new(config)),
-        }
+        Self(Arc::new(Mutex::new(config)))
+    }
+
+    pub fn register_read_interval(&self) -> Option<u64> {
+        self.0.lock().unwrap().register_read_interval.into()
     }
 
     pub fn inverters(&self) -> Vec<Inverter> {
-        self.config.lock().unwrap().inverters.clone()
+        self.0.lock().unwrap().inverters.clone()
     }
 
     pub fn set_inverters(&self, new: Vec<Inverter>) {
-        self.config.lock().unwrap().inverters = new;
+        self.0.lock().unwrap().inverters = new;
     }
 
     pub fn enabled_inverters(&self) -> Vec<Inverter> {
@@ -308,6 +309,12 @@ impl ConfigWrapper {
             .find(|i| i.datalog() == Some(datalog))
     }
 
+    pub fn enabled_inverter_with_serial(&self, serial: Serial) -> Option<Inverter> {
+        self.enabled_inverters()
+            .into_iter()
+            .find(|i| i.serial() == Some(serial))
+    }
+
     pub fn inverters_for_message(&self, message: &mqtt::Message) -> Result<Vec<Inverter>> {
         let (target_inverter, _) = message.split_cmd_topic()?;
         let inverters = self.enabled_inverters();
@@ -322,19 +329,19 @@ impl ConfigWrapper {
     }
 
     pub fn mqtt(&self) -> Mqtt {
-        self.config.lock().unwrap().mqtt.clone()
+        self.0.lock().unwrap().mqtt.clone()
     }
 
     pub fn influx(&self) -> Influx {
-        self.config.lock().unwrap().influx.clone()
+        self.0.lock().unwrap().influx.clone()
     }
 
     pub fn databases(&self) -> Vec<Database> {
-        self.config.lock().unwrap().databases.clone()
+        self.0.lock().unwrap().databases.clone()
     }
 
     pub fn set_databases(&self, new: Vec<Database>) {
-        self.config.lock().unwrap().databases = new;
+        self.0.lock().unwrap().databases = new;
     }
 
     pub fn have_enabled_database(&self) -> bool {
@@ -346,20 +353,20 @@ impl ConfigWrapper {
     }
 
     pub fn scheduler(&self) -> Option<Scheduler> {
-        self.config.lock().unwrap().scheduler.clone()
+        self.0.lock().unwrap().scheduler.clone()
     }
 
     pub fn loglevel(&self) -> String {
-        self.config.lock().unwrap().loglevel.clone()
+        self.0.lock().unwrap().loglevel.clone()
     }
 
     pub fn read_only(&self) -> bool {
-        self.config.lock().unwrap().read_only
+        self.0.lock().unwrap().read_only
     }
 
     /// Update an inverter's serial number at runtime
     pub fn update_inverter_serial(&self, old_serial: Serial, new_serial: Serial) -> Result<()> {
-        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
+        let mut config = self.0.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
@@ -375,7 +382,7 @@ impl ConfigWrapper {
 
     /// Update an inverter's datalog value at runtime
     pub fn update_inverter_datalog(&self, old_datalog: Serial, new_datalog: Serial) -> Result<()> {
-        let mut config = self.config.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
+        let mut config = self.0.lock().map_err(|_| anyhow::anyhow!("config.rs:Failed to lock config"))?;
         
         // Find and update the inverter
         for inverter in &mut config.inverters {
@@ -390,31 +397,31 @@ impl ConfigWrapper {
     }
 
     pub fn homeassistant_enabled(&self) -> bool {
-        self.config.lock().unwrap().homeassistant_enabled
+        self.0.lock().unwrap().homeassistant_enabled
     }
 
     pub fn datalog_file(&self) -> Option<String> {
-        self.config.lock().unwrap().datalog_file.clone()
+        self.0.lock().unwrap().datalog_file.clone()
     }
 
     pub fn strict_data_check(&self) -> bool {
-        self.config.lock().unwrap().strict_data_check
+        self.0.lock().unwrap().strict_data_check
     }
 
     pub fn register_file(&self) -> Option<String> {
-        self.config.lock().unwrap().register_file.clone()
+        self.0.lock().unwrap().register_file.clone()
     }
 
     pub fn verbose(&self) -> bool {
-        self.config.lock().unwrap().verbose
+        self.0.lock().unwrap().verbose
     }
 
     pub fn human_timestamps(&self) -> bool {
-        self.config.lock().unwrap().human_timestamps
+        self.0.lock().unwrap().human_timestamps
     }
 
     pub fn show_unknown(&self) -> bool {
-        self.config.lock().unwrap().show_unknown
+        self.0.lock().unwrap().show_unknown
     }
 }
 
@@ -567,7 +574,7 @@ impl Config {
     }
 
     fn default_loglevel() -> String {
-        "debug".to_string()
+        "info".to_string()
     }
 
     fn default_homeassistant_enabled() -> bool {
@@ -588,6 +595,10 @@ impl Config {
 
     fn default_show_unknown() -> bool {
         false
+    }
+
+    fn default_register_read_interval() -> u64 {
+        60
     }
 }
 

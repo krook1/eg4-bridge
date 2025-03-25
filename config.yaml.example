@@ -17,6 +17,8 @@ homeassistant_enabled: false  # Optional: Enable Home Assistant integration
 # what you are doing - i found it changed the charge settings for
 # my battery in some unexpected ways
 read_only: false  # Optional: Defaults to false
+# Interval in seconds between reading input registers (default: 60)
+register_read_interval: 60  # Optional: Defaults to 60 seconds
 
 # List of inverters to connect to
 inverters:
@@ -39,6 +41,8 @@ inverters:
   read_only: true  # Optional: Defaults to false
   # Delay between read operations in milliseconds (optional)
   # delay_ms: 1000  # Optional: Defaults to 0
+  # Interval in seconds between reading input registers (optional, overrides global setting)
+  # register_read_interval: 30  # Optional: Override global interval
 # a whole new inverter
 - enabled: false
   host: 192.168.0.163
