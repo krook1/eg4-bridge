@@ -5,25 +5,37 @@ use serde_with::serde_as;
 use serde_yaml;
 use std::sync::{Arc, Mutex};
 
+/// Main configuration structure that holds all settings for the EG4 bridge application.
+/// This includes inverter connections, database settings, MQTT configuration, and various
+/// operational parameters.
 #[serde_as]
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
+    /// List of configured inverters to connect to
     pub inverters: Vec<Inverter>,
+    /// MQTT broker configuration for publishing data
     pub mqtt: Mqtt,
+    /// InfluxDB configuration for time-series data storage
     pub influx: Influx,
+    /// List of configured databases for data storage
     #[serde(default = "Vec::new")]
     pub databases: Vec<Database>,
 
+    /// Optional scheduler configuration for periodic tasks
     pub scheduler: Option<Scheduler>,
 
+    /// Logging level (default: "info")
     #[serde(default = "Config::default_loglevel")]
     pub loglevel: String,
 
+    /// Global read-only mode flag
     pub read_only: bool,
 
+    /// Whether to enable Home Assistant integration
     #[serde(default = "Config::default_homeassistant_enabled")]
     pub homeassistant_enabled: bool,
 
+    /// Whether to perform strict validation of data values
     #[serde(default = "Config::default_strict_data_check")]
     pub strict_data_check: bool,
 
@@ -41,32 +53,46 @@ pub struct Config {
     #[serde(default = "Config::default_verbose")]
     pub verbose: bool,
 
+    /// Whether to use human-readable timestamps in output
     #[serde(default = "Config::default_human_timestamps")]
     pub human_timestamps: bool,
 
+    /// Whether to show unknown register values in output
     #[serde(default = "Config::default_show_unknown")]
     pub show_unknown: bool,
 }
 
-// Inverter {{{
+/// Configuration for a single EG4 inverter
 #[derive(Clone, Debug, Deserialize)]
 pub struct Inverter {
+    /// Whether this inverter is enabled for operation
     #[serde(default = "Config::default_enabled")]
     pub enabled: bool,
 
+    /// IP address or hostname of the inverter
     pub host: String,
+    /// TCP port number for Modbus communication
     pub port: u16,
+    /// Inverter's serial number (optional)
     #[serde(deserialize_with = "de_serial")]
     pub serial: Option<Serial>,
+    /// Datalogger's serial number (optional)
     #[serde(deserialize_with = "de_serial")]
     pub datalog: Option<Serial>,
 
+    /// Whether to enable heartbeat monitoring
     pub heartbeats: Option<bool>,
+    /// Whether to publish holding registers on connection
     pub publish_holdings_on_connect: Option<bool>,
+    /// Read timeout in milliseconds
     pub read_timeout: Option<u64>,
+    /// Whether to enable TCP_NODELAY for lower latency
     pub use_tcp_nodelay: Option<bool>,
+    /// Number of registers to read in each block
     pub register_block_size: Option<u16>,
+    /// Delay in milliseconds between register reads
     pub delay_ms: Option<u64>,
+    /// Whether this inverter is in read-only mode
     pub read_only: Option<bool>,
     /// Interval in seconds between reading input registers (optional, overrides global setting)
     pub register_read_interval: Option<u64>,
@@ -123,7 +149,7 @@ impl Inverter {
     pub fn register_read_interval(&self) -> Option<u64> {
         self.register_read_interval
     }
-} // }}}
+}
 
 // HomeAssistant {{{
 #[serde_as]
