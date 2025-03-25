@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::register::RegisterParser;
 
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -448,6 +449,23 @@ impl ConfigWrapper {
 
     pub fn show_unknown(&self) -> bool {
         self.0.lock().unwrap().show_unknown
+    }
+
+    pub fn register_schema(&self) -> RegisterParser {
+        if let Some(file) = self.register_file() {
+            RegisterParser::new(&file).unwrap_or_else(|e| {
+                error!("Failed to load register schema from {}: {}", file, e);
+                RegisterParser::new("doc/eg4_registers.json").unwrap_or_else(|e| {
+                    error!("Failed to load default register schema: {}", e);
+                    panic!("Could not load register schema");
+                })
+            })
+        } else {
+            RegisterParser::new("doc/eg4_registers.json").unwrap_or_else(|e| {
+                error!("Failed to load default register schema: {}", e);
+                panic!("Could not load register schema");
+            })
+        }
     }
 }
 

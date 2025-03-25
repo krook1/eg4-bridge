@@ -645,8 +645,9 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            let parsed = parse_input::parse_input_register(*reg, (*value).into());
-                            debug!("  {}", parsed);
+                            let schema = self.config.register_schema();
+                            let result = parse_input::parse_input_register(*reg, (*value).into(), &schema);
+                            debug!("  {}", result);
                         }
 
                         // Write to datalog file if enabled
@@ -702,8 +703,9 @@ impl Coordinator {
                             }
                             
                             // Parse and log the register value using the new module
-                            let parsed = parse_hold::parse_hold_register(*reg, *value);
-                            debug!("  {}", parsed);
+                            let schema = self.config.register_schema();
+                            let result = parse_hold::parse_hold_register(*reg, (*value).into(), &schema);
+                            debug!("  {}", result);
                         }
 
                         // Write to datalog file if enabled

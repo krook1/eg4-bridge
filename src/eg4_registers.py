@@ -164,6 +164,8 @@ def load_register_map(filepath: str) -> RegisterMap:
     type_registers = {}  # Track registers by type for duplicate checking
     shortnames = {}  # Track shortnames across all types
     register_entries = {}  # Track full register entries for duplicate checking
+    duplicate_entries = []  # Track all duplicate entries
+    duplicate_shortnames = []  # Track all duplicate shortnames
     
     for register_type in data.get('registers', []):
         reg_type = register_type.get('register_type', 'unknown').lower()
@@ -181,11 +183,12 @@ def load_register_map(filepath: str) -> RegisterMap:
                 entry_key = f"{reg_type}:{reg_number}"
                 if entry_key in register_entries:
                     existing = register_entries[entry_key]
-                    print(f"Fatal Error: Duplicate register entry found in {filepath} {entry_key}:")
-                    print(f"  - First occurrence: {json.dumps(existing, indent=2)}")
-                    print(f"  - Second occurrence: {json.dumps(reg_data, indent=2)}")
-                    print("Duplicate register entries are not allowed. Please fix the register definitions.")
-                    sys.exit(1)
+                    duplicate_entries.append({
+                        'key': entry_key,
+                        'first': existing,
+                        'second': reg_data
+                    })
+                    continue
                 
                 # Convert unit_scale to float if present, otherwise use 1.0
                 try:
@@ -206,14 +209,15 @@ def load_register_map(filepath: str) -> RegisterMap:
                     print(f"  - Second: {reg_data.get('description', '')} ({shortname})")
                     continue
                 
-                # Check for duplicate shortnames across all types - exit with fatal error
+                # Check for duplicate shortnames across all types - collect instead of exiting
                 if shortname in shortnames:
                     existing = shortnames[shortname]
-                    print(f"Fatal Error: Shortname '{shortname}' is used multiple times:")
-                    print(f"  - First: register {existing['number']} in type '{existing['type']}'")
-                    print(f"  - Second: register {reg_number} in type '{reg_type}'")
-                    print(f"Duplicate shortnames are not allowed. Please fix the register definitions in {filepath}")
-                    sys.exit(1)
+                    duplicate_shortnames.append({
+                        'shortname': shortname,
+                        'first': {'number': existing['number'], 'type': existing['type']},
+                        'second': {'number': reg_number, 'type': reg_type}
+                    })
+                    continue
                 
                 # Store register info for duplicate checking
                 type_registers[reg_type][reg_number] = {
@@ -239,6 +243,29 @@ def load_register_map(filepath: str) -> RegisterMap:
             except Exception as e:
                 print(f"Warning: Error processing register data: {e}\nData: {reg_data}")
                 continue
+    
+    # Report all duplicates found
+    has_errors = False
+    
+    if duplicate_entries:
+        print("\nFatal Error: Found duplicate register entries:")
+        for dup in duplicate_entries:
+            print(f"\nDuplicate entry found for {dup['key']}:")
+            print(f"  - First occurrence: {json.dumps(dup['first'], indent=2)}")
+            print(f"  - Second occurrence: {json.dumps(dup['second'], indent=2)}")
+        has_errors = True
+    
+    if duplicate_shortnames:
+        print("\nFatal Error: Found duplicate shortnames:")
+        for dup in duplicate_shortnames:
+            print(f"\nShortname '{dup['shortname']}' is used multiple times:")
+            print(f"  - First: register {dup['first']['number']} in type '{dup['first']['type']}'")
+            print(f"  - Second: register {dup['second']['number']} in type '{dup['second']['type']}'")
+        has_errors = True
+    
+    if has_errors:
+        print("\nDuplicate entries are not allowed. Please fix the register definitions in " + filepath)
+        sys.exit(1)
     
     if not registers:
         print("Warning: No valid registers were loaded from the file")
@@ -339,4 +366,28 @@ if __name__ == "__main__":
             else:
                 print("Failed to write points to InfluxDB")
     else:
-        print("No datalog file specified, skipping datalog processing") 
+        print("No datalog file specified, skipping datalog processing")
+
+    # Check for duplicate register numbers
+    # ... existing code ...
+
+    # Print register tables
+    print("\nHold Registers:")
+    print("-" * 100)
+    print(f"{'Register':<10} {'Shortname':<30} {'Description'}")
+    print("-" * 100)
+    hold_regs = sorted([reg for reg in register_map.registers.values() if reg.access == 'read_write'], key=lambda x: x.number)
+    for reg in hold_regs:
+        print(f"{reg.number:<10} {reg.name:<30} {reg.description}")
+    
+    print("\nInput Registers:")
+    print("-" * 100)
+    print(f"{'Register':<10} {'Shortname':<30} {'Description'}")
+    print("-" * 100)
+    input_regs = sorted([reg for reg in register_map.registers.values() if reg.access == 'read_only'], key=lambda x: x.number)
+    for reg in input_regs:
+        print(f"{reg.number:<10} {reg.name:<30} {reg.description}")
+    print("-" * 100 + "\n")
+
+    # Check for duplicate register numbers
+    # ... existing code ... 
