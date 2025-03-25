@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use sqlx::{any::AnyConnectOptions, Pool, Any, Executor, query::Query};
+use sqlx::{any::AnyConnectOptions, Pool, Any, Executor};
 use std::sync::RwLock;
 use std::sync::Arc;
 
