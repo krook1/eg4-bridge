@@ -160,8 +160,13 @@ def load_register_map(filepath: str) -> RegisterMap:
         data = json.load(f)
     
     registers = []
+    type_registers = {}  # Track registers by type for duplicate checking
+    shortnames = {}  # Track shortnames across all types
+    
     for register_type in data.get('registers', []):
         reg_type = register_type.get('register_type', 'unknown').lower()
+        type_registers[reg_type] = {}  # Initialize register map for this type
+        
         for reg_data in register_type.get('register_map', []):
             try:
                 # Get required fields with defaults for missing values
@@ -180,6 +185,32 @@ def load_register_map(filepath: str) -> RegisterMap:
                 shortname = reg_data.get('shortname')
                 if not shortname:
                     shortname = f"{reg_type}-{reg_number}"
+                
+                # Check for duplicate register numbers within type
+                if reg_number in type_registers[reg_type]:
+                    existing = type_registers[reg_type][reg_number]
+                    print(f"Error: Register number {reg_number} is defined multiple times in type '{reg_type}':")
+                    print(f"  - First: {existing['description']} ({existing['shortname']})")
+                    print(f"  - Second: {reg_data.get('description', '')} ({shortname})")
+                    continue
+                
+                # Check for duplicate shortnames across all types
+                if shortname in shortnames:
+                    existing = shortnames[shortname]
+                    print(f"Error: Shortname '{shortname}' is used multiple times:")
+                    print(f"  - First: register {existing['number']} in type '{existing['type']}'")
+                    print(f"  - Second: register {reg_number} in type '{reg_type}'")
+                    continue
+                
+                # Store register info for duplicate checking
+                type_registers[reg_type][reg_number] = {
+                    'description': reg_data.get('description', ''),
+                    'shortname': shortname
+                }
+                shortnames[shortname] = {
+                    'number': reg_number,
+                    'type': reg_type
+                }
                 
                 reg = Register(
                     number=reg_number,
