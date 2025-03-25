@@ -1816,7 +1816,7 @@
           "max_value": 65535,
           "min_value": 0,
           "read_only": "true",
-          "shortname": "pcharge",
+          "shortname": "sn_batch_num",
           "unit": "watt"
         },
         {
@@ -3485,7 +3485,6 @@
           "max_value": 65535,
           "min_value": 0,
           "read_only": "true",
-          "shortname": "pcharge",
           "unit": "watt"
         },
         {
@@ -5154,7 +5153,6 @@
           "max_value": 65535,
           "min_value": 0,
           "read_only": "true",
-          "shortname": "pcharge",
           "unit": "watt"
         },
         {
