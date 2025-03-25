@@ -9,6 +9,7 @@ import yaml
 from dataclasses import dataclass
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+import sys
 
 @dataclass
 class InfluxConfig:
@@ -20,7 +21,7 @@ class InfluxConfig:
 @dataclass
 class Config:
     influx: Optional[InfluxConfig]
-    datalog_file: str
+    datalog_file: Optional[str]
     register_file: str
     verbose: bool = False
     human_timestamps: bool = False
@@ -68,8 +69,8 @@ def load_config(config_file: str) -> Optional[Config]:
             datalog_file = config.get('datalog_file')
             register_file = config.get('register_file')
             
-            if not datalog_file or not register_file:
-                print("Error: datalog_file and register_file must be specified in config")
+            if not register_file:
+                print("Error: register_file must be specified in config")
                 return None
                 
             return Config(
@@ -162,6 +163,7 @@ def load_register_map(filepath: str) -> RegisterMap:
     registers = []
     type_registers = {}  # Track registers by type for duplicate checking
     shortnames = {}  # Track shortnames across all types
+    register_entries = {}  # Track full register entries for duplicate checking
     
     for register_type in data.get('registers', []):
         reg_type = register_type.get('register_type', 'unknown').lower()
@@ -174,6 +176,16 @@ def load_register_map(filepath: str) -> RegisterMap:
                 if reg_number is None:
                     print(f"Warning: Skipping register with missing register_number: {reg_data}")
                     continue
+                
+                # Check for duplicate entries in the JSON file
+                entry_key = f"{reg_type}:{reg_number}"
+                if entry_key in register_entries:
+                    existing = register_entries[entry_key]
+                    print(f"Fatal Error: Duplicate register entry found in {filepath} {entry_key}:")
+                    print(f"  - First occurrence: {json.dumps(existing, indent=2)}")
+                    print(f"  - Second occurrence: {json.dumps(reg_data, indent=2)}")
+                    print("Duplicate register entries are not allowed. Please fix the register definitions.")
+                    sys.exit(1)
                 
                 # Convert unit_scale to float if present, otherwise use 1.0
                 try:
@@ -194,13 +206,14 @@ def load_register_map(filepath: str) -> RegisterMap:
                     print(f"  - Second: {reg_data.get('description', '')} ({shortname})")
                     continue
                 
-                # Check for duplicate shortnames across all types
+                # Check for duplicate shortnames across all types - exit with fatal error
                 if shortname in shortnames:
                     existing = shortnames[shortname]
-                    print(f"Error: Shortname '{shortname}' is used multiple times:")
+                    print(f"Fatal Error: Shortname '{shortname}' is used multiple times:")
                     print(f"  - First: register {existing['number']} in type '{existing['type']}'")
                     print(f"  - Second: register {reg_number} in type '{reg_type}'")
-                    continue
+                    print(f"Duplicate shortnames are not allowed. Please fix the register definitions in {filepath}")
+                    sys.exit(1)
                 
                 # Store register info for duplicate checking
                 type_registers[reg_type][reg_number] = {
@@ -211,6 +224,7 @@ def load_register_map(filepath: str) -> RegisterMap:
                     'number': reg_number,
                     'type': reg_type
                 }
+                register_entries[entry_key] = reg_data
                 
                 reg = Register(
                     number=reg_number,
@@ -270,10 +284,7 @@ if __name__ == "__main__":
     if args.unknown:
         config.show_unknown = True
     
-    # Verify files exist
-    if not os.path.exists(config.datalog_file):
-        print(f"Error: Datalog file '{config.datalog_file}' not found")
-        exit(1)
+    # Verify register file exists
     if not os.path.exists(config.register_file):
         print(f"Error: Register file '{config.register_file}' not found")
         exit(1)
@@ -281,42 +292,51 @@ if __name__ == "__main__":
     # Load register definitions
     register_map = load_register_map(config.register_file)
     
-    # Load datalog entries
-    entries = load_datalog_file(config.datalog_file)
-    
-    # Process each entry
-    points = []  # Collect points for batch writing
-    for entry in entries:
-        # Decode register values
-        decoded_values = entry.decode_values(register_map, config.show_unknown)
-        
-        # Print decoded values
-        for name, value in decoded_values.items():
-            reg = next((r for r in register_map.registers.values() if r.name == name), None)
-            if reg:
-                unit_str = f" {reg.unit}" if reg.unit and config.verbose else ""
-            else:
-                unit_str = " (undefined)"
-            timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if config.human_timestamps else int(entry.timestamp.timestamp())
+    # Only process datalog if it's defined
+    if config.datalog_file:
+        # Verify datalog file exists
+        if not os.path.exists(config.datalog_file):
+            print(f"Error: Datalog file '{config.datalog_file}' not found")
+            exit(1)
             
-            if args.influx and config.influx:
-                # Create InfluxDB point
-                point = Point("eg4_inverter") \
-                    .tag("serial", entry.serial) \
-                    .tag("datalog", entry.datalog) \
-                    .field(name, value) \
-                    .time(entry.timestamp)
-                points.append(point)
+        # Load datalog entries
+        entries = load_datalog_file(config.datalog_file)
+        
+        # Process each entry
+        points = []  # Collect points for batch writing
+        for entry in entries:
+            # Decode register values
+            decoded_values = entry.decode_values(register_map, config.show_unknown)
+            
+            # Print decoded values
+            for name, value in decoded_values.items():
+                reg = next((r for r in register_map.registers.values() if r.name == name), None)
+                if reg:
+                    unit_str = f" {reg.unit}" if reg.unit and config.verbose else ""
+                else:
+                    unit_str = " (undefined)"
+                timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if config.human_timestamps else int(entry.timestamp.timestamp())
                 
-                # Also print to stdout if verbose
-                if config.verbose:
-                    print(f"eg4_inverter,serial={entry.serial},datalog={entry.datalog} {name}={value} {int(entry.timestamp.timestamp() * 1e9)}")
+                if args.influx and config.influx:
+                    # Create InfluxDB point
+                    point = Point("eg4_inverter") \
+                        .tag("serial", entry.serial) \
+                        .tag("datalog", entry.datalog) \
+                        .field(name, value) \
+                        .time(entry.timestamp)
+                    points.append(point)
+                    
+                    # Also print to stdout if verbose
+                    if config.verbose:
+                        print(f"eg4_inverter,serial={entry.serial},datalog={entry.datalog} {name}={value} {int(entry.timestamp.timestamp() * 1e9)}")
+                else:
+                    print(f"{timestamp} com.eg4electronics.inverter.{entry.serial}.{entry.datalog}.{name}: {value}{unit_str}")
+        
+        # Write all points to InfluxDB if enabled
+        if args.influx and config.influx and points:
+            if write_to_influx(config.influx, points):
+                print(f"Successfully wrote {len(points)} points to InfluxDB")
             else:
-                print(f"{timestamp} com.eg4electronics.inverter.{entry.serial}.{entry.datalog}.{name}: {value}{unit_str}")
-    
-    # Write all points to InfluxDB if enabled
-    if args.influx and config.influx and points:
-        if write_to_influx(config.influx, points):
-            print(f"Successfully wrote {len(points)} points to InfluxDB")
-        else:
-            print("Failed to write points to InfluxDB") 
+                print("Failed to write points to InfluxDB")
+    else:
+        print("No datalog file specified, skipping datalog processing") 
