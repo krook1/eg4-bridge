@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use sqlx::{any::AnyConnectOptions, Pool, Any};
+use sqlx::{any::AnyConnectOptions, Pool, Any, Executor, query::Query};
 use std::sync::RwLock;
 use std::sync::Arc;
 
@@ -25,8 +25,6 @@ pub struct Database {
 }
 
 impl Database {
-    // databases don't bother with a ConfigWrapper yet as they don't care about any
-    // changes once running; there's only enabled/url anyway and we'd use url to key off.
     pub fn new(config: config::Database, channels: Channels) -> Self {
         Self {
             config,
@@ -36,9 +34,12 @@ impl Database {
     }
 
     pub async fn start(&self) -> Result<()> {
-        // TODO: could log the url but would need to redact password
         info!("initializing database");
 
+        // Connect and migrate before starting the inserter
+        self.connect().await?;
+        self.migrate().await?;
+        
         futures::try_join!(self.inserter())?;
 
         info!("database loop exiting");
@@ -85,68 +86,30 @@ impl Database {
         let pool = self.connection().await?;
 
         // work out migration directory to use based on database url
-        match self.database()? {
+        let migrator = match self.database()? {
             SQLite => sqlx::migrate!("db/migrations/sqlite"),
             MySQL => sqlx::migrate!("db/migrations/mysql"),
             Postgres => sqlx::migrate!("db/migrations/postgres"),
-        }
-        .run(&pool)
-        .await?;
+        };
+
+        migrator.run(&pool).await?;
 
         Ok(())
     }
 
     async fn inserter(&self) -> Result<()> {
-        self.connect().await?;
-        info!("database connected");
-        self.migrate().await?;
-
         let mut receiver = self.channels.to_database.subscribe();
-        let values = match self.database()? {
-            DatabaseType::MySQL => Self::values_for_mysql(),
-            _ => Self::values_for_not_mysql(),
-        };
+
+        // wait for database to be ready
+        self.connect().await?;
 
         let query = format!(
-            r#"
-            INSERT INTO inputs
-              ( status,
-                v_pv_1, v_pv_2, v_pv_3, v_bat,
-                soc, soh,
-                internal_fault,
-                p_pv, p_pv_1, p_pv_2, p_pv_3,
-                p_battery, p_charge, p_discharge,
-                v_ac_r, v_ac_s, v_ac_t, f_ac,
-                p_inv, p_rec,
-                pf,
-                v_eps_r, v_eps_s, v_eps_t, f_eps, p_eps, s_eps,
-                p_grid, p_to_grid, p_to_user,
-                e_pv_day, e_pv_day_1, e_pv_day_2, e_pv_day_3,
-                e_inv_day, e_rec_day, e_chg_day, e_dischg_day,
-                e_eps_day, e_to_grid_day, e_to_user_day,
-                v_bus_1, v_bus_2,
-
-                e_pv_all, e_pv_all_1, e_pv_all_2, e_pv_all_3,
-                e_inv_all, e_rec_all, e_chg_all, e_dischg_all,
-                e_eps_all, e_to_grid_all, e_to_user_all,
-
-                fault_code, warning_code,
-
-                t_inner, t_rad_1, t_rad_2, t_bat,
-                runtime,
-
-                max_chg_curr, max_dischg_curr, charge_volt_ref, dischg_cut_volt,
-                bat_status_0, bat_status_1, bat_status_2, bat_status_3, bat_status_4,
-                bat_status_5, bat_status_6, bat_status_7, bat_status_8, bat_status_9,
-                bat_status_inv,
-                bat_count, bat_capacity, bat_current, bms_event_1, bms_event_2,
-                max_cell_voltage, min_cell_voltage, max_cell_temp, min_cell_temp,
-                bms_fw_update_state, cycle_count, vbat_inv,
-
-                datalog, created_at
-              )
-            VALUES {} "#,
-            values
+            "INSERT INTO inputs ({}) VALUES {}",
+            self.columns(),
+            match self.database()? {
+                DatabaseType::MySQL => Database::values_for_mysql(),
+                _ => Database::values_for_not_mysql(),
+            }
         );
 
         loop {
@@ -185,38 +148,39 @@ impl Database {
         let pool = self.connection().await?;
         let mut conn = pool.acquire().await?;
 
-        sqlx::query(query)
-            .bind(data.status as i32)
+        // Convert values that might overflow to i64 for SQLite compatibility
+        sqlx::query_as::<Any, ()>(query)
+            .bind(data.status as i64)
             .bind(data.v_pv_1)
             .bind(data.v_pv_2)
             .bind(data.v_pv_3)
             .bind(data.v_bat)
-            .bind(data.soc as i32)
-            .bind(data.soh as i32)
-            .bind(data.internal_fault as i32)
-            .bind(data.p_pv as i32)
-            .bind(data.p_pv_1 as i32)
-            .bind(data.p_pv_2 as i32)
-            .bind(data.p_pv_3 as i32)
+            .bind(data.soc as i64)
+            .bind(data.soh as i64)
+            .bind(data.internal_fault as i64)
+            .bind(data.p_pv as i64)
+            .bind(data.p_pv_1 as i64)
+            .bind(data.p_pv_2 as i64)
+            .bind(data.p_pv_3 as i64)
             .bind(data.p_battery as f64)
-            .bind(data.p_charge as i32)
-            .bind(data.p_discharge as i32)
+            .bind(data.p_charge as i64)
+            .bind(data.p_discharge as i64)
             .bind(data.v_ac_r)
             .bind(data.v_ac_s)
             .bind(data.v_ac_t)
             .bind(data.f_ac)
-            .bind(data.p_inv as i32)
-            .bind(data.p_rec as i32)
+            .bind(data.p_inv as i64)
+            .bind(data.p_rec as i64)
             .bind(data.pf)
             .bind(data.v_eps_r)
             .bind(data.v_eps_s)
             .bind(data.v_eps_t)
             .bind(data.f_eps)
-            .bind(data.p_eps as i32)
-            .bind(data.s_eps as i32)
+            .bind(data.p_eps as i64)
+            .bind(data.s_eps as i64)
             .bind(data.p_grid as f64)
-            .bind(data.p_to_grid as i32)
-            .bind(data.p_to_user as i32)
+            .bind(data.p_to_grid as i64)
+            .bind(data.p_to_user as i64)
             .bind(data.e_pv_day)
             .bind(data.e_pv_day_1)
             .bind(data.e_pv_day_2)
@@ -241,46 +205,35 @@ impl Database {
             .bind(data.e_eps_all)
             .bind(data.e_to_grid_all)
             .bind(data.e_to_user_all)
-            .bind(data.fault_code as i64)
-            .bind(data.warning_code as i64)
-            .bind(data.t_inner as i32)
-            .bind(data.t_rad_1 as i32)
-            .bind(data.t_rad_2 as i32)
-            .bind(data.t_bat as i32)
-            .bind(data.runtime as i64)
-            .bind(data.max_chg_curr)
-            .bind(data.max_dischg_curr)
-            .bind(data.charge_volt_ref)
-            .bind(data.dischg_cut_volt)
-            .bind(data.bat_status_0 as i32)
-            .bind(data.bat_status_1 as i32)
-            .bind(data.bat_status_2 as i32)
-            .bind(data.bat_status_3 as i32)
-            .bind(data.bat_status_4 as i32)
-            .bind(data.bat_status_5 as i32)
-            .bind(data.bat_status_6 as i32)
-            .bind(data.bat_status_7 as i32)
-            .bind(data.bat_status_8 as i32)
-            .bind(data.bat_status_9 as i32)
-            .bind(data.bat_status_inv as i32)
-            .bind(data.bat_count as i32)
-            .bind(data.bat_capacity as i32)
-            .bind(data.bat_current)
-            .bind(data.bms_event_1 as i32)
-            .bind(data.bms_event_2 as i32)
-            .bind(data.max_cell_voltage)
-            .bind(data.min_cell_voltage)
-            .bind(data.max_cell_temp)
-            .bind(data.min_cell_temp)
-            .bind(data.bms_fw_update_state as i32)
-            .bind(data.cycle_count as i32)
+            .bind(data.fault_code)
+            .bind(data.warning_code)
+            .bind(data.t_inner)
+            .bind(data.t_rad_1)
+            .bind(data.t_rad_2)
+            .bind(data.t_bat)
+            .bind(data.runtime)
+            .bind(data.bms_event_1)
+            .bind(data.bms_event_2)
+            .bind(data.bms_fw_update_state)
+            .bind(data.cycle_count)
             .bind(data.vbat_inv)
             .bind(data.datalog.to_string())
-            .bind(chrono::Local::now().naive_local().to_string())
+            .persistent(true)
             .execute(&mut *conn)
             .await?;
 
         Ok(())
+    }
+
+    fn columns(&self) -> &'static str {
+        "status, v_pv_1, v_pv_2, v_pv_3, v_bat, soc, soh, internal_fault, p_pv, p_pv_1, p_pv_2,
+        p_pv_3, p_battery, p_charge, p_discharge, v_ac_r, v_ac_s, v_ac_t, f_ac, p_inv, p_rec, pf,
+        v_eps_r, v_eps_s, v_eps_t, f_eps, p_eps, s_eps, p_grid, p_to_grid, p_to_user, e_pv_day,
+        e_pv_day_1, e_pv_day_2, e_pv_day_3, e_inv_day, e_rec_day, e_chg_day, e_dischg_day,
+        e_eps_day, e_to_grid_day, e_to_user_day, v_bus_1, v_bus_2, e_pv_all, e_pv_all_1,
+        e_pv_all_2, e_pv_all_3, e_inv_all, e_rec_all, e_chg_all, e_dischg_all, e_eps_all,
+        e_to_grid_all, e_to_user_all, fault_code, warning_code, t_inner, t_rad_1, t_rad_2, t_bat,
+        runtime, bms_event_1, bms_event_2, bms_fw_update_state, cycle_count, vbat_inv, datalog"
     }
 
     fn values_for_mysql() -> &'static str {
