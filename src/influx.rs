@@ -130,6 +130,8 @@ impl Influx {
                         // Add the field value
                         line = line.insert_field(name.as_str(), value);
                         points.push(line.build());
+                        info!("Preparing InfluxDB point: measurement={}, serial={}, datalog={}, field={}, value={}, timestamp={}", 
+                            MEASUREMENT, serial, datalog, name, value, timestamp);
                     }
 
                     trace!("Sending to InfluxDB: {:?}", points);
@@ -138,7 +140,8 @@ impl Influx {
                     while retry_count < 3 {
                         match client.send(&self.database(), &points).await {
                             Ok(_) => {
-                                info!("Successfully sent {} points to InfluxDB", points.len());
+                                info!("Successfully sent {} points to InfluxDB for datalog={}, serial={}", 
+                                    points.len(), datalog, serial);
                                 break;
                             }
                             Err(err) => {
