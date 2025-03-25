@@ -10,7 +10,7 @@ strict_data_check: false  # Optional: Defaults to false
 # - datalog: Datalog serial number
 # - register_type: "hold" or "input" (optional)
 # - raw_data: Object with register numbers as keys and hex values
-datalog_file: /var/log/eg4/datalog.json  # Optional: Path to JSON log file
+datalog_file: "data/datalog.json"
 homeassistant_enabled: false  # Optional: Enable Home Assistant integration
 # this permits writing to the inverter which may change your
 # settings unexpectedly - change from true to false if you know
@@ -69,27 +69,30 @@ databases:
 
 # MQTT configuration
 mqtt:
-  enabled: true  # Required: Whether MQTT is enabled
-  host: localhost  # Required: MQTT broker hostname
-  port: 1883  # Required: MQTT broker port
-  username:  # Optional: MQTT username
-  password:  # Optional: MQTT password
-  namespace: eg4  # Required: MQTT topic namespace
-  # Whether to publish individual input messages to separate topics (default: false)
-  publish_individual_input: false  # Optional: Defaults to false
-  homeassistant:
-    enabled: true  # Optional: Enable Home Assistant MQTT discovery
-    prefix: homeassistant  # Optional: Home Assistant MQTT prefix
+  enabled: false
+  host: localhost
+  port: 1883
+  username: mqtt
+  password: mqtt
+  topic: eg4/#
 
 # InfluxDB configuration
 influx:
-  enabled: true  # Required: Whether InfluxDB is enabled
-  url: http://localhost:8086  # Required: InfluxDB server URL
-  username:  # Optional: InfluxDB username
-  password:  # Optional: InfluxDB password
-  database: eg4  # Required: InfluxDB database name
+  enabled: true
+  url: http://influxdb:8086
+  username: influxdb
+  password: influxdb
+  database: eg4
 
 # Scheduler configuration
 scheduler:
   enabled: false  # Required: Whether scheduler is enabled
   timesync_cron: "0 0 * * *"  # Optional: Cron expression for time sync
+
+# Output options
+verbose: false          # Show units in output
+human_timestamps: false # Show human readable timestamps
+show_unknown: false    # Show undefined registers in output
+
+# Required file paths
+register_file: "data/eg4_registers.json"

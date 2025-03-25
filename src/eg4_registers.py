@@ -3,6 +3,84 @@ from datetime import datetime
 from typing import Dict, List, Optional, Union
 import argparse
 import os
+import yaml
+from dataclasses import dataclass
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
+
+@dataclass
+class InfluxConfig:
+    url: str
+    username: str
+    password: str
+    database: str
+
+@dataclass
+class Config:
+    influx: Optional[InfluxConfig]
+    datalog_file: str
+    register_file: str
+    verbose: bool = False
+    human_timestamps: bool = False
+    show_unknown: bool = False
+
+def write_to_influx(config: InfluxConfig, points: List[Point]) -> bool:
+    """Write points to InfluxDB"""
+    try:
+        client = InfluxDBClient(
+            url=config.url,
+            token=f"{config.username}:{config.password}",
+            org="-"
+        )
+        write_api = client.write_api(write_options=SYNCHRONOUS)
+        
+        # Write all points
+        write_api.write(bucket=config.database, record=points)
+        
+        # Clean up
+        write_api.close()
+        client.close()
+        return True
+    except Exception as e:
+        print(f"Error writing to InfluxDB: {e}")
+        return False
+
+def load_config(config_file: str) -> Optional[Config]:
+    """Load configuration from YAML file"""
+    try:
+        with open(config_file, 'r') as f:
+            config = yaml.safe_load(f)
+            
+            # Load InfluxDB config if enabled
+            influx_config = None
+            influx_section = config.get('influx', {})
+            if influx_section.get('enabled', True):
+                influx_config = InfluxConfig(
+                    url=influx_section.get('url', 'http://localhost:8086'),
+                    username=influx_section.get('username', ''),
+                    password=influx_section.get('password', ''),
+                    database=influx_section.get('database', 'eg4_data')
+                )
+            
+            # Load file paths
+            datalog_file = config.get('datalog_file')
+            register_file = config.get('register_file')
+            
+            if not datalog_file or not register_file:
+                print("Error: datalog_file and register_file must be specified in config")
+                return None
+                
+            return Config(
+                influx=influx_config,
+                datalog_file=datalog_file,
+                register_file=register_file,
+                verbose=config.get('verbose', False),
+                human_timestamps=config.get('human_timestamps', False),
+                show_unknown=config.get('show_unknown', False)
+            )
+    except Exception as e:
+        print(f"Warning: Could not load config file: {e}")
+        return None
 
 class Register:
     def __init__(self, number: int, name: str, description: str, data_type: str, 
@@ -124,44 +202,88 @@ def load_register_map(filepath: str) -> RegisterMap:
 if __name__ == "__main__":
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(description='Process EG4 datalog entries')
-    parser.add_argument('-f', '--datalog-file', required=True,
-                      help='Path to the datalog.json file')
-    parser.add_argument('-s', '--register-file', required=True,
-                      help='Path to the eg4_registers.json file')
+    parser.add_argument('-f', '--datalog-file',
+                      help='Path to the datalog.json file (overrides config)')
+    parser.add_argument('-s', '--register-file',
+                      help='Path to the eg4_registers.json file (overrides config)')
     parser.add_argument('-v', '--verbose', action='store_true',
-                      help='Show units in output')
+                      help='Show units in output (overrides config)')
     parser.add_argument('--human', action='store_true',
-                      help='Show human readable timestamps')
+                      help='Show human readable timestamps (overrides config)')
     parser.add_argument('-u', '--unknown', action='store_true',
-                      help='Show undefined registers in output')
+                      help='Show undefined registers in output (overrides config)')
+    parser.add_argument('--influx', action='store_true',
+                      help='Output in InfluxDB line protocol format')
+    parser.add_argument('--config', default='config.yaml',
+                      help='Path to configuration file (default: config.yaml)')
     
     args = parser.parse_args()
     
-    # Verify files exist
-    if not os.path.exists(args.datalog_file):
-        print(f"Error: Datalog file '{args.datalog_file}' not found")
+    # Load configuration
+    config = load_config(args.config)
+    if not config:
+        print("Error: Could not load configuration. Please check your config.yaml file.")
         exit(1)
-    if not os.path.exists(args.register_file):
-        print(f"Error: Register file '{args.register_file}' not found")
+    
+    # Override config with command line arguments
+    if args.datalog_file:
+        config.datalog_file = args.datalog_file
+    if args.register_file:
+        config.register_file = args.register_file
+    if args.verbose:
+        config.verbose = True
+    if args.human:
+        config.human_timestamps = True
+    if args.unknown:
+        config.show_unknown = True
+    
+    # Verify files exist
+    if not os.path.exists(config.datalog_file):
+        print(f"Error: Datalog file '{config.datalog_file}' not found")
+        exit(1)
+    if not os.path.exists(config.register_file):
+        print(f"Error: Register file '{config.register_file}' not found")
         exit(1)
     
     # Load register definitions
-    register_map = load_register_map(args.register_file)
+    register_map = load_register_map(config.register_file)
     
     # Load datalog entries
-    entries = load_datalog_file(args.datalog_file)
+    entries = load_datalog_file(config.datalog_file)
     
     # Process each entry
+    points = []  # Collect points for batch writing
     for entry in entries:
         # Decode register values
-        decoded_values = entry.decode_values(register_map, args.unknown)
+        decoded_values = entry.decode_values(register_map, config.show_unknown)
         
         # Print decoded values
         for name, value in decoded_values.items():
             reg = next((r for r in register_map.registers.values() if r.name == name), None)
             if reg:
-                unit_str = f" {reg.unit}" if reg.unit and args.verbose else ""
+                unit_str = f" {reg.unit}" if reg.unit and config.verbose else ""
             else:
                 unit_str = " (undefined)"
-            timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if args.human else int(entry.timestamp.timestamp())
-            print(f"{timestamp} {entry.serial} {entry.datalog} {name}: {value}{unit_str}") 
+            timestamp = entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') if config.human_timestamps else int(entry.timestamp.timestamp())
+            
+            if args.influx and config.influx:
+                # Create InfluxDB point
+                point = Point("eg4_inverter") \
+                    .tag("serial", entry.serial) \
+                    .tag("datalog", entry.datalog) \
+                    .field(name, value) \
+                    .time(entry.timestamp)
+                points.append(point)
+                
+                # Also print to stdout if verbose
+                if config.verbose:
+                    print(f"eg4_inverter,serial={entry.serial},datalog={entry.datalog} {name}={value} {int(entry.timestamp.timestamp() * 1e9)}")
+            else:
+                print(f"{timestamp} com.eg4electronics.inverter.{entry.serial}.{entry.datalog}.{name}: {value}{unit_str}")
+    
+    # Write all points to InfluxDB if enabled
+    if args.influx and config.influx and points:
+        if write_to_influx(config.influx, points):
+            print(f"Successfully wrote {len(points)} points to InfluxDB")
+        else:
+            print("Failed to write points to InfluxDB") 

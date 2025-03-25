@@ -29,6 +29,19 @@ pub struct Config {
 
     /// Optional path to output datalog data in JSON format
     pub datalog_file: Option<String>,
+
+    /// Path to register definitions JSON file
+    pub register_file: Option<String>,
+
+    /// Output options
+    #[serde(default = "Config::default_verbose")]
+    pub verbose: bool,
+
+    #[serde(default = "Config::default_human_timestamps")]
+    pub human_timestamps: bool,
+
+    #[serde(default = "Config::default_show_unknown")]
+    pub show_unknown: bool,
 }
 
 // Inverter {{{
@@ -387,6 +400,22 @@ impl ConfigWrapper {
     pub fn strict_data_check(&self) -> bool {
         self.config.lock().unwrap().strict_data_check
     }
+
+    pub fn register_file(&self) -> Option<String> {
+        self.config.lock().unwrap().register_file.clone()
+    }
+
+    pub fn verbose(&self) -> bool {
+        self.config.lock().unwrap().verbose
+    }
+
+    pub fn human_timestamps(&self) -> bool {
+        self.config.lock().unwrap().human_timestamps
+    }
+
+    pub fn show_unknown(&self) -> bool {
+        self.config.lock().unwrap().show_unknown
+    }
 }
 
 impl Config {
@@ -546,6 +575,18 @@ impl Config {
     }
 
     fn default_strict_data_check() -> bool {
+        false
+    }
+
+    fn default_verbose() -> bool {
+        false
+    }
+
+    fn default_human_timestamps() -> bool {
+        false
+    }
+
+    fn default_show_unknown() -> bool {
         false
     }
 }

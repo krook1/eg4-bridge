@@ -1,9 +1,11 @@
 use crate::prelude::*;
+use crate::register::RegisterParser;
+use std::collections::HashMap;
 
 use chrono::TimeZone;
 use rinfluxdb::line_protocol::{r#async::Client, LineBuilder};
 
-static INPUTS_MEASUREMENT: &str = "inputs";
+static MEASUREMENT: &str = "eg4_inverter";
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum ChannelData {
@@ -15,11 +17,20 @@ pub enum ChannelData {
 pub struct Influx {
     config: ConfigWrapper,
     channels: Channels,
+    register_parser: Option<RegisterParser>,
 }
 
 impl Influx {
     pub fn new(config: ConfigWrapper, channels: Channels) -> Self {
-        Self { config, channels }
+        let register_parser = config.register_file()
+            .as_ref()
+            .and_then(|file| RegisterParser::new(file).ok());
+            
+        Self { 
+            config, 
+            channels,
+            register_parser,
+        }
     }
 
     pub async fn start(&self) -> Result<()> {
@@ -65,55 +76,69 @@ impl Influx {
         info!("InfluxDB sender started");
 
         loop {
-            info!("InfluxDB sender waiting for data...");
-            let mut line = LineBuilder::new(INPUTS_MEASUREMENT);
-
             match receiver.recv().await {
                 Ok(Shutdown) => {
                     info!("InfluxDB sender received shutdown signal");
                     break;
                 }
                 Ok(InputData(data)) => {
-                    info!("InfluxDB sender received input data");
-                    trace!("InfluxDB processing input data: {:?}", data);
-                    for (key, value) in data.as_object().ok_or_else(|| anyhow!("Invalid data format"))? {
-                        let key = key.to_string();
-                        trace!("Processing field: {} = {:?}", key, value);
+                    let mut points = Vec::new();
+                    
+                    // Extract common fields
+                    let serial = data.get("serial")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| anyhow!("Missing serial in data"))?;
+                    let datalog = data.get("datalog")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| anyhow!("Missing datalog in data"))?;
+                    let timestamp = data.get("time")
+                        .and_then(|v| v.as_i64())
+                        .ok_or_else(|| anyhow!("Missing time in data"))?;
 
-                        line = if key == "time" {
-                            let value = value.as_i64().unwrap_or_else(|| {
-                                panic!("cannot represent {value} as i64 for {key}")
-                            });
-                            line.set_timestamp(chrono::Utc.timestamp_opt(value, 0)
-                                .single()
-                                .ok_or_else(|| anyhow!("Invalid timestamp: {}", value))?)
-                        } else if key == "datalog" || key == "inverter" {
-                            let value = value.as_str().unwrap_or_else(|| {
-                                panic!("cannot represent {value} as str for {key}")
-                            });
-                            line.insert_tag(key, value)
-                        } else if value.is_f64() {
-                            let value = value.as_f64().unwrap_or_else(|| {
-                                panic!("cannot represent {value} as f64 for {key}")
-                            });
-                            line.insert_field(key, value)
-                        } else {
-                            // can't be anything other than int
-                            let value = value.as_i64().unwrap_or_else(|| {
-                                panic!("cannot represent {value} as i64 for {key}")
-                            });
-                            line.insert_field(key, value)
+                    // Get raw register data
+                    let raw_data = data.get("raw_data")
+                        .and_then(|v| v.as_object())
+                        .ok_or_else(|| anyhow!("Missing raw_data in data"))?;
+
+                    // Convert raw_data to HashMap<String, String>
+                    let mut register_data = HashMap::new();
+                    for (key, value) in raw_data {
+                        if let Some(hex_value) = value.as_str() {
+                            register_data.insert(key.clone(), hex_value.to_string());
                         }
                     }
 
-                    let lines = vec![line.build()];
-                    trace!("Sending to InfluxDB: {:?}", lines);
+                    // Decode register values if we have a register parser
+                    let decoded_values = if let Some(parser) = &self.register_parser {
+                        parser.decode_registers(&register_data, self.config.show_unknown(), datalog)
+                    } else {
+                        // If no register parser, just use raw values
+                        register_data.iter()
+                            .map(|(k, v)| (k.clone(), u16::from_str_radix(v, 16).unwrap_or(0) as f64))
+                            .collect()
+                    };
+
+                    // Create points for each decoded value
+                    for (name, value) in decoded_values {
+                        let mut line = LineBuilder::new(MEASUREMENT)
+                            .insert_tag("serial", serial)
+                            .insert_tag("datalog", datalog)
+                            .set_timestamp(chrono::Utc.timestamp_opt(timestamp, 0)
+                                .single()
+                                .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp))?);
+
+                        // Add the field value
+                        line = line.insert_field(name.as_str(), value);
+                        points.push(line.build());
+                    }
+
+                    trace!("Sending to InfluxDB: {:?}", points);
 
                     let mut retry_count = 0;
                     while retry_count < 3 {
-                        match client.send(&self.database(), &lines).await {
+                        match client.send(&self.database(), &points).await {
                             Ok(_) => {
-                                info!("Successfully sent data to InfluxDB");
+                                info!("Successfully sent {} points to InfluxDB", points.len());
                                 break;
                             }
                             Err(err) => {

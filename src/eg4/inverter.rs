@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::eg4::packet::{Packet, TcpFrameFactory};
+use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam};
 use crate::eg4::packet_decoder::PacketDecoder;
 
 use {
@@ -483,6 +483,234 @@ impl Inverter {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Set the inverter's output power limit
+    pub async fn set_output_power_limit(&self, power_limit: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0001,
+            values: vec![(power_limit >> 8) as u8, power_limit as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's grid-tie mode
+    pub async fn set_grid_tie_mode(&self, mode: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0002,
+            values: vec![(mode >> 8) as u8, mode as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's battery charge current
+    pub async fn set_battery_charge_current(&self, current: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0003,
+            values: vec![(current >> 8) as u8, current as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's battery discharge current
+    pub async fn set_battery_discharge_current(&self, current: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0004,
+            values: vec![(current >> 8) as u8, current as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's battery charge voltage
+    pub async fn set_battery_charge_voltage(&self, voltage: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0005,
+            values: vec![(voltage >> 8) as u8, voltage as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's battery discharge cutoff voltage
+    pub async fn set_battery_discharge_cutoff_voltage(&self, voltage: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0006,
+            values: vec![(voltage >> 8) as u8, voltage as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge current
+    pub async fn set_ac_charge_current(&self, current: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0007,
+            values: vec![(current >> 8) as u8, current as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge voltage
+    pub async fn set_ac_charge_voltage(&self, voltage: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0008,
+            values: vec![(voltage >> 8) as u8, voltage as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge frequency
+    pub async fn set_ac_charge_frequency(&self, frequency: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0009,
+            values: vec![(frequency >> 8) as u8, frequency as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge power factor
+    pub async fn set_ac_charge_power_factor(&self, power_factor: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000A,
+            values: vec![(power_factor >> 8) as u8, power_factor as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge priority
+    pub async fn set_ac_charge_priority(&self, priority: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000B,
+            values: vec![(priority >> 8) as u8, priority as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's AC charge time window
+    pub async fn set_ac_charge_time(&self, start_hour: u8, start_minute: u8, end_hour: u8, end_minute: u8) -> Result<()> {
+        let start_time = ((start_hour as u16) << 8) | (start_minute as u16);
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000C,
+            values: vec![(start_time >> 8) as u8, start_time as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+
+        let end_time = ((end_hour as u16) << 8) | (end_minute as u16);
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000D,
+            values: vec![(end_time >> 8) as u8, end_time as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's forced discharge mode
+    pub async fn set_forced_discharge_mode(&self, enabled: bool) -> Result<()> {
+        let value = if enabled { 1u16 } else { 0u16 };
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000E,
+            values: vec![(value >> 8) as u8, value as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's forced discharge time window
+    pub async fn set_forced_discharge_time(&self, start_hour: u8, start_minute: u8, end_hour: u8, end_minute: u8) -> Result<()> {
+        let start_time = ((start_hour as u16) << 8) | (start_minute as u16);
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x000F,
+            values: vec![(start_time >> 8) as u8, start_time as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+
+        let end_time = ((end_hour as u16) << 8) | (end_minute as u16);
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0010,
+            values: vec![(end_time >> 8) as u8, end_time as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's forced discharge power
+    pub async fn set_forced_discharge_power(&self, power: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0011,
+            values: vec![(power >> 8) as u8, power as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's grid-tie power limit
+    pub async fn set_grid_tie_power_limit(&self, power_limit: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0012,
+            values: vec![(power_limit >> 8) as u8, power_limit as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's grid-tie frequency
+    pub async fn set_grid_tie_frequency(&self, frequency: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0013,
+            values: vec![(frequency >> 8) as u8, frequency as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's grid-tie voltage
+    pub async fn set_grid_tie_voltage(&self, voltage: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0014,
+            values: vec![(voltage >> 8) as u8, voltage as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    /// Set the inverter's grid-tie power factor
+    pub async fn set_grid_tie_power_factor(&self, power_factor: u16) -> Result<()> {
+        let packet = Packet::WriteParam(WriteParam {
+            datalog: self.config().datalog().expect("datalog must be set"),
+            register: 0x0015,
+            values: vec![(power_factor >> 8) as u8, power_factor as u8],
+        });
+        self.channels.to_inverter.send(ChannelData::Packet(packet))?;
         Ok(())
     }
 }

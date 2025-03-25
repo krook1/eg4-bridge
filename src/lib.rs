@@ -15,6 +15,7 @@ pub mod unixtime;
 pub mod utils;
 pub mod eg4;
 pub mod error;
+pub mod register;
 
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
