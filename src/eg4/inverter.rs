@@ -90,20 +90,53 @@ impl WaitForReply for Receiver {
 } // }}}
 
 // Serial {{{
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Serial([u8; 10]);
 
 impl Serial {
-    pub fn new(input: &[u8]) -> Result<Self> {
-        Ok(Self(input.try_into()?))
-    }
-
-    pub fn default() -> Self {
-        Self([0; 10])
+    pub fn new(bytes: &[u8]) -> Result<Self> {
+        Ok(Self(bytes.try_into()?))
     }
 
     pub fn data(&self) -> [u8; 10] {
         self.0
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 10] {
+        &self.0
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
+impl From<[u8; 10]> for Serial {
+    fn from(bytes: [u8; 10]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl From<&[u8]> for Serial {
+    fn from(bytes: &[u8]) -> Self {
+        let mut result = [0u8; 10];
+        result.copy_from_slice(&bytes[..std::cmp::min(bytes.len(), 10)]);
+        Self(result)
+    }
+}
+
+impl From<&str> for Serial {
+    fn from(s: &str) -> Self {
+        let mut result = [0u8; 10];
+        let bytes = s.as_bytes();
+        result.copy_from_slice(&bytes[..std::cmp::min(bytes.len(), 10)]);
+        Self(result)
+    }
+}
+
+impl std::fmt::Display for Serial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", String::from_utf8_lossy(&self.0))
     }
 }
 
@@ -127,12 +160,6 @@ impl std::str::FromStr for Serial {
         let mut r: [u8; 10] = Default::default();
         r.copy_from_slice(s.as_bytes());
         Ok(Self(r))
-    }
-}
-
-impl std::fmt::Display for Serial {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", String::from_utf8_lossy(&self.0))
     }
 }
 

@@ -348,8 +348,10 @@ impl Coordinator {
         .run()
         .await?;
 
-        // Add delay after read operation
-        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        // Add delay between reads if configured
+        if inverter.delay_ms().unwrap_or(0) > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
+        }
         Ok(())
     }
 
@@ -363,8 +365,10 @@ impl Coordinator {
         .run()
         .await?;
 
-        // Add delay after read operation
-        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        // Add delay between reads if configured
+        if inverter.delay_ms().unwrap_or(0) > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
+        }
         Ok(())
     }
 
@@ -378,8 +382,10 @@ impl Coordinator {
         .run()
         .await?;
 
-        // Add delay after read operation
-        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        // Add delay between reads if configured
+        if inverter.delay_ms().unwrap_or(0) > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
+        }
         Ok(())
     }
 
@@ -393,8 +399,10 @@ impl Coordinator {
             .run()
             .await?;
 
-        // Add delay after read operation
-        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        // Add delay between reads if configured
+        if inverter.delay_ms().unwrap_or(0) > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
+        }
         Ok(())
     }
 
@@ -454,8 +462,10 @@ impl Coordinator {
         .run()
         .await?;
         
-        // Add delay after read operation
-        tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms())).await;
+        // Add delay between reads if configured
+        if inverter.delay_ms().unwrap_or(0) > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
+        }
         Ok(())
     }
 

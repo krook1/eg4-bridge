@@ -38,7 +38,7 @@ impl Scheduler {
         let mut timesync_interval = tokio::time::interval(Duration::from_secs(60));
         
         // Get the global register read interval
-        let global_interval = self.config.register_read_interval.unwrap_or(60);
+        let global_interval = self.config.register_read_interval().unwrap_or(60);
         let mut register_interval = tokio::time::interval(Duration::from_secs(global_interval));
 
         loop {
