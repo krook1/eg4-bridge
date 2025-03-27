@@ -4,11 +4,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Register {
-    pub number: u16,
+    pub register_number: u16,
     pub name: String,
     pub description: String,
     #[serde(rename = "datatype")]
     pub data_type: String,
+    #[serde(default)]
     pub access: String,
     #[serde(default = "default_scaling")]
     pub scaling: f64,
@@ -16,6 +17,8 @@ pub struct Register {
     pub unit: String,
     #[serde(default)]
     pub shortname: String,
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 fn default_scaling() -> f64 {
@@ -53,8 +56,17 @@ impl RegisterParser {
             line_numbers.insert(pos, current_line);
         }
 
-        let register_map: RegisterMap = serde_json::from_str(&content)
+        let mut register_map: RegisterMap = serde_json::from_str(&content)
             .map_err(|err| anyhow!("Error parsing register file: {}", err))?;
+
+        // Set access field based on read_only
+        for register_type in &mut register_map.registers {
+            for register in &mut register_type.register_map {
+                if register.access.is_empty() {
+                    register.access = if register.read_only { "read_only".to_string() } else { "read_write".to_string() };
+                }
+            }
+        }
 
         let mut registers: HashMap<u16, Register> = HashMap::new();
         let mut shortnames: HashMap<String, (String, u16, usize)> = HashMap::new();
@@ -86,16 +98,16 @@ impl RegisterParser {
                     .ok_or_else(|| anyhow!("Could not find register at index {}", reg_idx))?;
                 
                 // Get the line number for this register
-                let reg_line = if let Some(pos) = content.find(&format!("\"register_number\":{}", register.number)) {
+                let reg_line = if let Some(pos) = content.find(&format!("\"register_number\":{}", register.register_number)) {
                     line_numbers.get(&pos).copied().unwrap_or(0)
                 } else {
                     0
                 };
                 
-                if let Some(existing) = type_registers.get(&register.number) {
+                if let Some(existing) = type_registers.get(&register.register_number) {
                     duplicates.push(format!(
                         "Register number {} is defined multiple times in type '{}':\n  - First: {} ({}) at line {}\n  - Second: {} ({}) at line {}",
-                        register.number,
+                        register.register_number,
                         register_type.register_type,
                         existing.description,
                         existing.shortname,
@@ -105,7 +117,7 @@ impl RegisterParser {
                         reg_line
                     ));
                 } else {
-                    type_registers.insert(register.number, register.clone());
+                    type_registers.insert(register.register_number, register.clone());
                 }
 
                 // Check for duplicate shortnames across all types
@@ -122,12 +134,12 @@ impl RegisterParser {
                         existing_number,
                         existing_type,
                         existing_line,
-                        register.number,
+                        register.register_number,
                         register_type.register_type,
                         reg_line
                     ));
                 } else {
-                    shortnames.insert(shortname, (register_type.register_type.clone(), register.number, reg_line));
+                    shortnames.insert(shortname, (register_type.register_type.clone(), register.register_number, reg_line));
                 }
             }
 
@@ -150,8 +162,8 @@ impl RegisterParser {
         Ok(Self { registers })
     }
 
-    pub fn get_register(&self, number: u16) -> Option<&Register> {
-        self.registers.get(&number)
+    pub fn get_register(&self, register_number: u16) -> Option<&Register> {
+        self.registers.get(&register_number)
     }
 
     pub fn decode_registers(&self, raw_data: &HashMap<String, String>, show_unknown: bool, register_type: &str) -> HashMap<String, f64> {
