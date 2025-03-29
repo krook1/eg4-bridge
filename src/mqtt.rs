@@ -1,7 +1,9 @@
 use crate::prelude::*;
 use crate::eg4::packet::BatteryStatusString;
+use crate::coordinator::PacketStats;
 
 use rumqttc::{AsyncClient, Event, EventLoop, Incoming, LastWill, MqttOptions, Publish, QoS};
+use std::sync::{Arc, Mutex};
 
 // Message {{{
 #[derive(Eq, PartialEq, Debug, Clone)]
@@ -366,14 +368,16 @@ pub struct Mqtt {
     config: ConfigWrapper,
     shutdown: bool,
     channels: Channels,
+    shared_stats: Arc<Mutex<PacketStats>>,
 }
 
 impl Mqtt {
-    pub fn new(config: ConfigWrapper, channels: Channels) -> Self {
+    pub fn new(config: ConfigWrapper, channels: Channels, shared_stats: Arc<Mutex<PacketStats>>) -> Self {
         Self {
             config,
             channels,
             shutdown: false,
+            shared_stats,
         }
     }
 
@@ -417,10 +421,15 @@ impl Mqtt {
         Ok(())
     }
 
-    pub fn stop(&mut self) {
+    pub async fn stop(&mut self) {
+        info!("Stopping MQTT client...");
         self.shutdown = true;
 
+        // Send shutdown signal
         let _ = self.channels.from_mqtt.send(ChannelData::Shutdown);
+        
+        // Give tasks time to process shutdown
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     async fn setup(&self, client: AsyncClient) -> Result<()> {
@@ -464,6 +473,7 @@ impl Mqtt {
     async fn receiver(&self, mut eventloop: EventLoop) -> Result<()> {
         loop {
             if self.shutdown {
+                info!("MQTT receiver shutting down");
                 break;
             }
 
@@ -475,18 +485,18 @@ impl Mqtt {
                         self.handle_message(publish)?;
                     }
                     Err(e) => {
-                        // should automatically reconnect on next poll()..
-                        error!("{}", e);
-                        info!("reconnecting in 5s");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        if !self.shutdown {
+                            error!("{}", e);
+                            info!("reconnecting in 5s");
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
                     }
                     _ => {} // keepalives etc
                 }
             }
         }
 
-        info!("receiver loop exiting");
-
+        info!("MQTT receiver loop exiting");
         Ok(())
     }
 
@@ -521,20 +531,43 @@ impl Mqtt {
 
         loop {
             match receiver.recv().await? {
-                Shutdown => break,
+                Shutdown => {
+                    info!("MQTT sender received shutdown signal");
+                    // Flush any remaining messages before exiting
+                    let _ = client.disconnect().await;
+                    break;
+                }
                 Message(message) => {
                     let topic = format!("{}/{}", self.config.mqtt().namespace(), message.topic);
                     info!("publishing: {} = {}", topic, message.payload);
-                    let _ = client
-                        .publish(&topic, QoS::AtLeastOnce, message.retain, message.payload)
-                        .await
-                        .map_err(|err| error!("publish {} failed: {:?} .. skipping", topic, err));
+                    let payload = message.payload.as_bytes().to_vec();
+                    let mut retry_count = 0;
+                    loop {
+                        match client.publish(&topic, QoS::AtLeastOnce, message.retain, payload.as_slice()).await {
+                            Ok(_) => {
+                                info!("Successfully published message to topic: {}", topic);
+                                // Increment stats after successful publish
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.mqtt_messages_sent += 1;
+                                    debug!("Incremented MQTT messages sent counter to {}", stats.mqtt_messages_sent);
+                                }
+                                break;
+                            }
+                            Err(err) => {
+                                error!("MQTT publish failed: {:?} - retrying in 10s (attempt {}/3)", err, retry_count + 1);
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.mqtt_errors += 1;
+                                }
+                                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                retry_count += 1;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        info!("sender loop exiting");
-
+        info!("MQTT sender loop exiting");
         Ok(())
     }
 

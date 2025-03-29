@@ -1,46 +1,56 @@
 use anyhow::Result;
-use log::info;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::oneshot;
+use log::{info, error};
+use tokio::signal::ctrl_c;
+use tokio::time::Duration;
 
 #[tokio::main]
-async fn main() {
-    // Create a shutdown channel that will be used by both paths
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    
-    tokio::select! {
-        result = eg4_bridge::app() => {
-            if let Err(e) = result {
-                eprintln!("Error: {:?}", e);
-                std::process::exit(255);
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
+    let shutdown_rx = shutdown_tx.subscribe();
+
+    let app_result = tokio::select! {
+        result = eg4_bridge::app(shutdown_rx) => result,
+        _ = async {
+            if let Ok(()) = ctrl_c().await {
+                info!("Received SIGINT, initiating graceful shutdown");
+                let _ = shutdown_tx.send(());
             }
-            // Wait for shutdown to complete
-            let _ = shutdown_rx.await;
+            info!("Waiting for app to complete shutdown...");
+            match tokio::time::timeout(Duration::from_secs(30), eg4_bridge::app(shutdown_tx.subscribe())).await {
+                Ok(result) => result,
+                Err(_) => {
+                    error!("Shutdown timed out after 30 seconds");
+                    Err(anyhow::anyhow!("Shutdown timed out"))
+                }
+            }
+        } => {
+            info!("Waiting for app to complete shutdown...");
+            match tokio::time::timeout(Duration::from_secs(30), eg4_bridge::app(shutdown_tx.subscribe())).await {
+                Ok(result) => result,
+                Err(_) => {
+                    error!("Shutdown timed out after 30 seconds");
+                    Err(anyhow::anyhow!("Shutdown timed out"))
+                }
+            }
         }
-        _ = handle_signals(shutdown_tx) => {
-            // Wait for the app to complete its shutdown sequence
-            let _ = shutdown_rx.await;
+    };
+
+    Ok(match app_result {
+        Ok((_, stats)) => {
+            let stats = stats.lock().map_err(|e| anyhow::anyhow!("Failed to lock stats: {}", e))?;
+            info!("Final statistics:");
+            info!("  Total packets received: {}", stats.packets_received);
+            info!("  Total packets sent: {}", stats.packets_sent);
+            info!("  MQTT messages sent: {}", stats.mqtt_messages_sent);
+            info!("  InfluxDB writes: {}", stats.influx_writes);
+            info!("  Database writes: {}", stats.database_writes);
+            Ok(())
         }
-    }
+        Err(e) => {
+            error!("Application error: {}", e);
+            Err(e)
+        }
+    }?)
 }
 
-/// Provides a future that will terminate once a SIGINT or SIGTERM is
-/// received from the host. Allows the process to be terminated
-/// cleanly when running in a container (particularly Kubernetes).
-async fn handle_signals(shutdown_tx: oneshot::Sender<()>) -> Result<()> {
-    let mut sigterm = signal(SignalKind::terminate())?;
-    let mut sigint = signal(SignalKind::interrupt())?;
 
-    tokio::select! {
-        _ = sigterm.recv() => {
-            info!("Received SIGTERM, stopping process");
-        },
-        _ = sigint.recv() => {
-            info!("Received SIGINT, stopping process");
-        },
-    }
-
-    // Send shutdown signal to trigger proper cleanup
-    let _ = shutdown_tx.send(());
-    Ok(())
-}

@@ -20,64 +20,117 @@ pub mod register;
 const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use crate::prelude::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use crate::coordinator::PacketStats;
+use crate::coordinator::Coordinator;
+use crate::scheduler::Scheduler;
+use crate::mqtt::Mqtt;
+use crate::influx::Influx;
+use crate::database::Database;
+use crate::datalog_writer::DatalogWriter;
+use crate::eg4::inverter::Inverter;
+use crate::prelude::Channels;
+use std::error::Error;
 
 // Helper struct to manage component shutdown
 #[derive(Clone)]
 pub struct Components {
-    coordinator: Coordinator,
-    mqtt: Mqtt,
-    influx: Influx,
-    inverters: Vec<Inverter>,
-    databases: Vec<Database>,
-    channels: Channels,
+    pub coordinator: Coordinator,
+    pub scheduler: Scheduler,
+    pub mqtt: Option<Mqtt>,
+    pub influx: Option<Influx>,
+    pub databases: Vec<Database>,
+    pub datalog_writer: Option<DatalogWriter>,
+    #[allow(dead_code)]
+    pub channels: Channels,
 }
 
 impl Components {
-    fn stop(mut self) {
-        // First send shutdown signals to all components
-        info!("Sending shutdown signals...");
-        let _ = self.channels.from_inverter.send(eg4::inverter::ChannelData::Shutdown);
-        let _ = self.channels.from_mqtt.send(mqtt::ChannelData::Shutdown);
-        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
+    pub fn new(
+        coordinator: Coordinator,
+        scheduler: Scheduler,
+        mqtt: Option<Mqtt>,
+        influx: Option<Influx>,
+        databases: Vec<Database>,
+        datalog_writer: Option<DatalogWriter>,
+        channels: Channels,
+    ) -> Self {
+        Self {
+            coordinator,
+            scheduler,
+            mqtt,
+            influx,
+            databases,
+            datalog_writer,
+            channels,
+        }
+    }
+
+    pub async fn stop(&mut self) {
+        info!("Stopping all components...");
         
-        // Give more time for shutdown signals to be processed
-        info!("Waiting for components to process shutdown signals...");
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        // Stop coordinator first
+        self.coordinator.stop();
 
-        // Print final statistics once
-        if let Ok(stats) = self.coordinator.stats.lock() {
-            info!("Final Statistics:");
-            stats.print_summary();
-        } else {
-            error!("Failed to print final statistics - could not acquire lock");
+        // Stop other components if they exist
+        if let Some(influx) = &self.influx {
+            influx.stop();
         }
-
-        // Now stop all components
-        info!("Stopping components...");
-        for inverter in self.inverters {
-            inverter.stop();
+        if let Some(mqtt) = &mut self.mqtt {
+            let _ = mqtt.stop().await;
         }
-        for database in self.databases {
+        for database in &self.databases {
             database.stop();
         }
-        self.mqtt.stop();
-        self.influx.stop();
-        self.coordinator.stop();
+        if let Some(writer) = &self.datalog_writer {
+            let _ = writer.stop();
+        }
+
+        info!("Shutdown complete");
     }
 }
 
-pub async fn app() -> Result<()> {
+pub async fn shutdown(
+    mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    config: Arc<ConfigWrapper>,
+    channels: Channels,
+    coordinator: Coordinator,
+    scheduler: Scheduler,
+    mqtt: Mqtt,
+    influx: Influx,
+    databases: Vec<Database>,
+) -> Result<((), Arc<Mutex<PacketStats>>)> {
+    info!("Initiating shutdown sequence");
+    
+    // Stop all components in sequence
+    let mut components = Components {
+        coordinator: coordinator.clone(),
+        scheduler: scheduler.clone(),
+        mqtt: Some(mqtt.clone()),
+        influx: Some(influx.clone()),
+        databases: databases.clone(),
+        datalog_writer: None,
+        channels: channels.clone(),
+    };
+
+    components.stop().await;
+    info!("Shutdown complete");
+
+    // Get final stats after all components are stopped
+    let stats = components.coordinator.shared_stats.clone();
+
+    Ok(((), stats))
+}
+
+pub async fn app(
+    mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    _config: Arc<ConfigWrapper>,
+) -> Result<(), Box<dyn Error>> {
     let options = Options::new();
-    info!("Starting eg4-bridge {} with config file: {}", CARGO_PKG_VERSION, options.config_file);
+    let config_file = options.config_file.clone();
 
-    let config = ConfigWrapper::new(options.config_file).unwrap_or_else(|err| {
-        // no logging available yet, so eprintln! will have to do
-        eprintln!("Error: {:?}", err);
-        std::process::exit(255);
-    });
-
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.loglevel()))
+    // Initialize logger first
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
             writeln!(
                 buf,
@@ -91,7 +144,31 @@ pub async fn app() -> Result<()> {
         .write_style(env_logger::WriteStyle::Never)
         .init();
 
+    info!("Starting eg4-bridge {} with config file: {}", CARGO_PKG_VERSION, config_file);
     info!("eg4-bridge {} starting", CARGO_PKG_VERSION);
+
+    // Load config after logger is initialized
+    let config = ConfigWrapper::new(options.config_file).unwrap_or_else(|err| {
+        error!("Failed to load config: {:?}", err);
+        std::process::exit(255);
+    });
+
+    // Update log level from config
+    if let Err(e) = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.loglevel()))
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "[{} {} {}] {}",
+                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
+                record.level(),
+                record.module_path().unwrap_or(""),
+                record.args()
+            )
+        })
+        .write_style(env_logger::WriteStyle::Never)
+        .try_init() {
+        error!("Failed to update log level: {}", e);
+    }
 
     info!("Initializing channels...");
     let channels = Channels::new();
@@ -109,10 +186,10 @@ pub async fn app() -> Result<()> {
     let scheduler = Scheduler::new((*config).clone(), channels.clone());
     
     info!("  Creating MQTT client...");
-    let mqtt = Mqtt::new((*config).clone(), channels.clone());
+    let mqtt = Mqtt::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
     
     info!("  Creating InfluxDB client...");
-    let influx = Influx::new((*config).clone(), channels.clone());
+    let influx = Influx::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
 
     info!("  Creating Inverters...");
     let inverters: Vec<_> = config
@@ -126,30 +203,9 @@ pub async fn app() -> Result<()> {
     let databases: Vec<_> = config
         .enabled_databases()
         .into_iter()
-        .map(|database| Database::new(database, channels.clone()))
+        .map(|database| Database::new(database, channels.clone(), coordinator.shared_stats.clone()))
         .collect();
     info!("    Created {} database instances", databases.len());
-
-    // Store components that need to be stopped
-    let components = Components {
-        coordinator: coordinator.clone(),
-        mqtt: mqtt.clone(),
-        influx: influx.clone(),
-        inverters: inverters.clone(),
-        databases: databases.clone(),
-        channels: channels.clone(),
-    };
-
-    // Set up graceful shutdown
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    
-    // Handle Ctrl+C
-    tokio::spawn(async move {
-        if let Ok(()) = tokio::signal::ctrl_c().await {
-            info!("Received Ctrl+C, initiating graceful shutdown");
-            let _ = shutdown_tx.send(());
-        }
-    });
 
     // Start components in sequence to ensure proper initialization
     info!("Starting components in sequence...");
@@ -158,8 +214,17 @@ pub async fn app() -> Result<()> {
     info!("Starting databases...");
     if let Err(e) = start_databases(databases.clone()).await {
         error!("Failed to start databases: {}", e);
-        components.stop();
-        return Err(e);
+        let mut components = Components {
+            coordinator: coordinator.clone(),
+            scheduler: scheduler.clone(),
+            mqtt: Some(mqtt.clone()),
+            influx: Some(influx.clone()),
+            databases: databases.clone(),
+            datalog_writer: None,
+            channels: channels.clone(),
+        };
+        components.stop().await;
+        return Err(e.into());
     }
     info!("Databases started successfully");
 
@@ -167,8 +232,17 @@ pub async fn app() -> Result<()> {
     info!("Starting InfluxDB...");
     if let Err(e) = influx.start().await {
         error!("Failed to start InfluxDB: {}", e);
-        components.stop();
-        return Err(e);
+        let mut components = Components {
+            coordinator: coordinator.clone(),
+            scheduler: scheduler.clone(),
+            mqtt: Some(mqtt.clone()),
+            influx: Some(influx.clone()),
+            databases: databases.clone(),
+            datalog_writer: None,
+            channels: channels.clone(),
+        };
+        components.stop().await;
+        return Err(e.into());
     }
     info!("InfluxDB started successfully");
 
@@ -195,14 +269,23 @@ pub async fn app() -> Result<()> {
     info!("Starting inverters...");
     if let Err(e) = start_inverters(inverters.clone()).await {
         error!("Failed to start inverters: {}", e);
-        components.stop();
-        return Err(e);
+        let mut components = Components {
+            coordinator: coordinator.clone(),
+            scheduler: scheduler.clone(),
+            mqtt: Some(mqtt.clone()),
+            influx: Some(influx.clone()),
+            databases: databases.clone(),
+            datalog_writer: None,
+            channels: channels.clone(),
+        };
+        components.stop().await;
+        return Err(e.into());
     }
     info!("Inverters started successfully");
 
     // Start remaining components
     info!("Starting remaining components (scheduler, MQTT)...");
-    let app_result = tokio::select! {
+    let _app_result: Result<()> = tokio::select! {
         res = async {
             futures::try_join!(
                 scheduler.start(),
@@ -214,18 +297,27 @@ pub async fn app() -> Result<()> {
             }
             Ok(())
         }
-        _ = shutdown_rx => {
+        _ = shutdown_rx.recv() => {
             info!("Initiating shutdown sequence");
             Ok(())
         }
     };
 
-    // Graceful shutdown sequence
-    info!("Stopping all components...");
-    components.stop();
+    // Stop all components in sequence
+    info!("Shutting down...");
+    let mut components = Components {
+        coordinator: coordinator.clone(),
+        scheduler: scheduler.clone(),
+        mqtt: Some(mqtt.clone()),
+        influx: Some(influx.clone()),
+        databases: databases.clone(),
+        datalog_writer: None,
+        channels: channels.clone(),
+    };
+    components.stop().await;
     info!("Shutdown complete");
 
-    app_result
+    Ok(())
 }
 
 async fn start_databases(databases: Vec<Database>) -> Result<()> {

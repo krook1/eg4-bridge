@@ -1,6 +1,8 @@
 use crate::prelude::*;
 use crate::register::RegisterParser;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use crate::coordinator::PacketStats;
 
 use chrono::TimeZone;
 use rinfluxdb::line_protocol::{r#async::Client, LineBuilder};
@@ -19,10 +21,11 @@ pub struct Influx {
     config: ConfigWrapper,
     channels: Channels,
     register_parser: Option<RegisterParser>,
+    shared_stats: Arc<Mutex<PacketStats>>,
 }
 
 impl Influx {
-    pub fn new(config: ConfigWrapper, channels: Channels) -> Self {
+    pub fn new(config: ConfigWrapper, channels: Channels, shared_stats: Arc<Mutex<PacketStats>>) -> Self {
         let register_parser = config.register_file()
             .as_ref()
             .and_then(|file| RegisterParser::new(file).ok());
@@ -31,6 +34,7 @@ impl Influx {
             config, 
             channels,
             register_parser,
+            shared_stats,
         }
     }
 
@@ -143,10 +147,18 @@ impl Influx {
                             Ok(_) => {
                                 info!("Successfully sent {} points to InfluxDB for datalog={}, serial={}", 
                                     points.len(), datalog, serial);
+                                // Increment stats after successful write
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.influx_writes += 1;
+                                    debug!("Incremented InfluxDB writes counter to {}", stats.influx_writes);
+                                }
                                 break;
                             }
                             Err(err) => {
                                 error!("InfluxDB push failed: {:?} - retrying in 10s (attempt {}/3)", err, retry_count + 1);
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.influx_errors += 1;
+                                }
                                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                                 retry_count += 1;
                             }

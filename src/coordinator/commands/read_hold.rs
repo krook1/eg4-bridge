@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 use eg4::{
     inverter::WaitForReply,
-    packet::{DeviceFunction, TranslatedData},
+    packet::{DeviceFunction, TranslatedData, Packet},
 };
 
 use crate::coordinator::Channels;
@@ -39,13 +39,8 @@ impl ReadHold {
 
         let mut receiver = self.channels.from_inverter.subscribe();
 
-        if self
-            .channels
-            .to_inverter
-            .send(eg4::inverter::ChannelData::Packet(packet.clone()))
-            .is_err()
-        {
-            bail!("send(to_inverter) failed - channel closed?");
+        if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
+            bail!("Failed to send packet to coordinator: {}", e);
         }
 
         let packet = receiver.wait_for_reply(&packet).await?;

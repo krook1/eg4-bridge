@@ -1,7 +1,9 @@
 use crate::prelude::*;
-use sqlx::{any::AnyConnectOptions, Pool, Any, Executor};
+use sqlx::{any::AnyConnectOptions, Pool, Any};
 use std::sync::RwLock;
 use std::sync::Arc;
+use std::sync::Mutex;
+use crate::coordinator::PacketStats;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChannelData {
@@ -22,14 +24,16 @@ pub struct Database {
     config: config::Database,
     channels: Channels,
     pool: Arc<RwLock<Option<Pool<Any>>>>,
+    shared_stats: Arc<Mutex<PacketStats>>,
 }
 
 impl Database {
-    pub fn new(config: config::Database, channels: Channels) -> Self {
+    pub fn new(config: config::Database, channels: Channels, shared_stats: Arc<Mutex<PacketStats>>) -> Self {
         Self {
             config,
             channels,
             pool: Arc::new(RwLock::new(None)),
+            shared_stats,
         }
     }
 
@@ -124,9 +128,19 @@ impl Database {
                     
                     while retry_count < max_retries {
                         match self.insert(&query, &data).await {
-                            Ok(_) => break,
+                            Ok(_) => {
+                                // Increment stats after successful insert
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.database_writes += 1;
+                                    debug!("Incremented database writes counter to {}", stats.database_writes);
+                                }
+                                break;
+                            }
                             Err(err) => {
                                 error!("INSERT failed: {:?} - retrying in {}s", err, backoff);
+                                if let Ok(mut stats) = self.shared_stats.lock() {
+                                    stats.database_errors += 1;
+                                }
                                 tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
                                 retry_count += 1;
                                 backoff *= 2;

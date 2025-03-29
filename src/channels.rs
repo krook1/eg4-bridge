@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use crate::eg4::inverter::ChannelData;
+use crate::coordinator::ChannelData as CoordinatorChannelData;
 
 #[derive(Debug, Clone)]
 pub struct Channels {
@@ -11,6 +12,8 @@ pub struct Channels {
     pub to_database: broadcast::Sender<database::ChannelData>,
     pub read_register_cache: broadcast::Sender<register_cache::ChannelData>,
     pub to_register_cache: broadcast::Sender<register_cache::ChannelData>,
+    pub from_coordinator: broadcast::Sender<CoordinatorChannelData>,
+    pub to_coordinator: broadcast::Sender<CoordinatorChannelData>,
 }
 
 impl Default for Channels {
@@ -30,6 +33,8 @@ impl Channels {
             to_database: Self::channel(),
             read_register_cache: Self::channel(),
             to_register_cache: Self::channel(),
+            from_coordinator: Self::channel(),
+            to_coordinator: Self::channel(),
         }
     }
 

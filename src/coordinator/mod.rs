@@ -25,40 +25,41 @@ const RETRY_DELAY_MS: u64 = 1000;    // 1 second
 pub enum ChannelData {
     Shutdown,
     Packet(crate::eg4::packet::Packet),
+    SendPacket(crate::eg4::packet::Packet),
 }
 
 pub type InputsStore = std::collections::HashMap<Serial, crate::eg4::packet::ReadInputs>;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct PacketStats {
-    packets_received: u64,
-    packets_sent: u64,
+    pub packets_received: u64,
+    pub packets_sent: u64,
     // Received packet counters
-    heartbeat_packets_received: u64,
-    translated_data_packets_received: u64,
-    read_param_packets_received: u64,
-    write_param_packets_received: u64,
+    pub heartbeat_packets_received: u64,
+    pub translated_data_packets_received: u64,
+    pub read_param_packets_received: u64,
+    pub write_param_packets_received: u64,
     // Sent packet counters
-    heartbeat_packets_sent: u64,
-    translated_data_packets_sent: u64,
-    read_param_packets_sent: u64,
-    write_param_packets_sent: u64,
+    pub heartbeat_packets_sent: u64,
+    pub translated_data_packets_sent: u64,
+    pub read_param_packets_sent: u64,
+    pub write_param_packets_sent: u64,
     // Error counters
-    modbus_errors: u64,
-    mqtt_errors: u64,
-    influx_errors: u64,
-    database_errors: u64,
-    register_cache_errors: u64,
+    pub modbus_errors: u64,
+    pub mqtt_errors: u64,
+    pub influx_errors: u64,
+    pub database_errors: u64,
+    pub register_cache_errors: u64,
     // Other stats
-    mqtt_messages_sent: u64,
-    influx_writes: u64,
-    database_writes: u64,
-    register_cache_writes: u64,
+    pub mqtt_messages_sent: u64,
+    pub influx_writes: u64,
+    pub database_writes: u64,
+    pub register_cache_writes: u64,
     // Connection stats
-    inverter_disconnections: std::collections::HashMap<Serial, u64>,
-    serial_mismatches: u64,
+    pub inverter_disconnections: std::collections::HashMap<Serial, u64>,
+    pub serial_mismatches: u64,
     // Last message received per inverter
-    last_messages: std::collections::HashMap<Serial, String>,
+    pub last_messages: std::collections::HashMap<Serial, String>,
 }
 
 impl PacketStats {
@@ -112,6 +113,31 @@ impl PacketStats {
     pub fn increment_cache_errors(&mut self) {
         self.register_cache_errors += 1;
     }
+
+    pub fn copy_from(&mut self, other: &PacketStats) {
+        self.packets_received = other.packets_received;
+        self.packets_sent = other.packets_sent;
+        self.heartbeat_packets_received = other.heartbeat_packets_received;
+        self.translated_data_packets_received = other.translated_data_packets_received;
+        self.read_param_packets_received = other.read_param_packets_received;
+        self.write_param_packets_received = other.write_param_packets_received;
+        self.heartbeat_packets_sent = other.heartbeat_packets_sent;
+        self.translated_data_packets_sent = other.translated_data_packets_sent;
+        self.read_param_packets_sent = other.read_param_packets_sent;
+        self.write_param_packets_sent = other.write_param_packets_sent;
+        self.modbus_errors = other.modbus_errors;
+        self.mqtt_errors = other.mqtt_errors;
+        self.influx_errors = other.influx_errors;
+        self.database_errors = other.database_errors;
+        self.register_cache_errors = other.register_cache_errors;
+        self.mqtt_messages_sent = other.mqtt_messages_sent;
+        self.influx_writes = other.influx_writes;
+        self.database_writes = other.database_writes;
+        self.register_cache_writes = other.register_cache_writes;
+        self.inverter_disconnections = other.inverter_disconnections.clone();
+        self.serial_mismatches = other.serial_mismatches;
+        self.last_messages = other.last_messages.clone();
+    }
 }
 
 #[derive(Clone)]
@@ -122,11 +148,26 @@ pub struct Coordinator {
     databases: Vec<Arc<Database>>,
     datalog_writer: Option<Arc<DatalogWriter>>,
     channels: Channels,
-    pub stats: Arc<Mutex<PacketStats>>,
+    pub shared_stats: Arc<Mutex<PacketStats>>,
 }
 
+#[allow(dead_code)]
 impl Coordinator {
     pub fn new(config: Arc<ConfigWrapper>, channels: Channels) -> Self {
+        let shared_stats = Arc::new(Mutex::new(PacketStats::default()));
+        
+        // Share stats with inverters
+        for inverter_config in config.inverters() {
+            if let Some(inverter) = config.enabled_inverter_with_datalog(inverter_config.datalog().unwrap_or_default()) {
+                let _inverter = eg4::inverter::Inverter::new_with_stats(
+                    (*config).clone(),
+                    &inverter,
+                    channels.clone(),
+                    shared_stats.clone()
+                );
+            }
+        }
+
         Self {
             config,
             mqtt: None,
@@ -134,61 +175,237 @@ impl Coordinator {
             databases: Vec::new(),
             datalog_writer: None,
             channels,
-            stats: Arc::new(Mutex::new(PacketStats::default())),
+            shared_stats,
         }
     }
 
-    pub async fn start(&mut self) -> Result<()> {
-        info!("Starting coordinator");
+    pub fn stop(&self) {
+        info!("Stopping coordinator...");
 
-        // Initialize services
+        // Send shutdown signals through channels first
+        let _ = self.channels.to_inverter.send(crate::eg4::inverter::ChannelData::Shutdown);
+        let _ = self.channels.to_mqtt.send(mqtt::ChannelData::Shutdown);
+        let _ = self.channels.to_influx.send(influx::ChannelData::Shutdown);
+        let _ = self.channels.to_database.send(database::ChannelData::Shutdown);
+        let _ = self.channels.to_register_cache.send(register_cache::ChannelData::Shutdown);
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        // Start all components
         self.start_mqtt()?;
         self.start_influx()?;
         self.start_databases()?;
         self.start_datalog_writer()?;
 
-        // Start periodic statistics printing
-        let stats = self.stats.clone();
-        let config = self.config.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600)); // Print every hour
-            loop {
-                interval.tick().await;
-                if let Ok(stats) = stats.lock() {
-                    info!("Periodic Statistics:");
-                    stats.print_summary();
-                }
-            }
-        });
+        let mut shutdown = false;
+        let mut receiver = self.channels.from_inverter.subscribe();
+        let mut coordinator_receiver = self.channels.from_coordinator.subscribe();
 
-        if self.config.mqtt().enabled() {
+        loop {
+            if shutdown {
+                info!("Coordinator shutting down, stopping message processing");
+                break;
+            }
+
             tokio::select! {
-                res = self.inverter_receiver() => {
-                    if let Err(e) = res {
-                        error!("Inverter receiver error: {}", e);
+                msg = receiver.recv() => {
+                    match msg {
+                        Ok(inverter::ChannelData::Packet(packet)) => {
+                            if let Err(e) = self.handle_packet(packet).await {
+                                error!("Failed to handle packet: {}", e);
+                            }
+                        }
+                        Ok(inverter::ChannelData::Connected(datalog)) => {
+                            info!("Inverter connected: {}", datalog);
+                            if let Err(e) = self.inverter_connected(datalog).await {
+                                error!("Failed to process inverter connection: {}", e);
+                            }
+                        }
+                        Ok(inverter::ChannelData::Disconnect(serial)) => {
+                            warn!("Inverter disconnected: {}", serial);
+                            if let Ok(mut stats) = self.shared_stats.lock() {
+                                let count = stats.inverter_disconnections
+                                    .entry(serial)
+                                    .or_insert(0);
+                                *count += 1;
+                                // Print statistics after disconnection
+                                info!("Statistics after inverter disconnection:");
+                                stats.print_summary();
+                            }
+                        }
+                        Ok(inverter::ChannelData::Shutdown) => {
+                            info!("Coordinator received shutdown signal");
+                            shutdown = true;
+                        }
+                        Ok(inverter::ChannelData::Heartbeat(packet)) => {
+                            // Handle heartbeat packets using the same stats tracking as other packets
+                            if let Err(e) = self.handle_packet(packet).await {
+                                error!("Failed to handle heartbeat packet: {}", e);
+                            }
+                        }
+                        Ok(inverter::ChannelData::ModbusError(inverter, error_code, error)) => {
+                            error!("Modbus error from inverter {}: {} (code: {:#04x})", 
+                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
+                            if let Ok(mut stats) = self.shared_stats.lock() {
+                                stats.modbus_errors += 1;
+                                // Print statistics after significant error
+                                stats.print_summary();
+                            }
+                        }
+                        Ok(inverter::ChannelData::SerialMismatch(inverter, expected, actual)) => {
+                            error!("Serial number mismatch for inverter {}: expected {}, got {}", 
+                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), expected, actual);
+
+                            if let Ok(mut stats) = self.shared_stats.lock() {
+                                stats.serial_mismatches += 1;
+                                stats.last_messages.insert(
+                                    inverter.datalog().unwrap_or_default(),
+                                    format!("Serial number mismatch for inverter {}: expected {}, got {}", 
+                                        inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), 
+                                        inverter.serial().map(|s| s.to_string()).unwrap_or_default(),
+                                        actual)
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error receiving from channel: {}", e);
+                        }
                     }
                 }
-                res = self.mqtt_receiver() => {
-                    if let Err(e) = res {
-                        error!("MQTT receiver error: {}", e);
+                msg = coordinator_receiver.recv() => {
+                    match msg {
+                        Ok(ChannelData::SendPacket(packet)) => {
+                            if let Err(e) = self.send_to_inverter(packet).await {
+                                error!("Failed to send packet to inverter: {}", e);
+                            }
+                        }
+                        Ok(ChannelData::Shutdown) => {
+                            info!("Coordinator received shutdown signal");
+                            shutdown = true;
+                        }
+                        Ok(ChannelData::Packet(_)) => {
+                            // Ignore regular packets in this channel
+                        }
+                        Err(e) => {
+                            error!("Error receiving from coordinator channel: {}", e);
+                        }
                     }
                 }
             }
-        } else {
-            if let Err(e) = self.inverter_receiver().await {
-                error!("Inverter receiver error: {}", e);
+        }
+
+        info!("Coordinator shutdown complete");
+        Ok(())
+    }
+
+    async fn handle_packet(&self, packet: Packet) -> Result<()> {
+        // Update shared stats for received packets
+        if let Ok(mut stats) = self.shared_stats.lock() {
+            stats.packets_received += 1;
+            match &packet {
+                Packet::TranslatedData(_) => stats.translated_data_packets_received += 1,
+                Packet::ReadParam(_rp) => stats.read_param_packets_received += 1,
+                Packet::WriteParam(_wp) => stats.write_param_packets_received += 1,
+                Packet::Heartbeat(_) => stats.heartbeat_packets_received += 1,
+            }
+        }
+
+        let datalog = match &packet {
+            Packet::TranslatedData(td) => td.datalog,
+            Packet::ReadParam(rp) => rp.datalog,
+            Packet::WriteParam(wp) => wp.datalog,
+            Packet::Heartbeat(hb) => hb.datalog,
+        };
+
+        // Log the type of packet received
+        match &packet {
+            Packet::TranslatedData(td) => {
+                info!("Received TranslatedData packet - datalog: {}, inverter: {}, function: {:?}, register: {}", 
+                    td.datalog, td.inverter, td.device_function, td.register);
+            }
+            Packet::ReadParam(rp) => {
+                info!("Received ReadParam packet - datalog: {}, register: {}", 
+                    rp.datalog, rp.register);
+            }
+            Packet::WriteParam(wp) => {
+                info!("Received WriteParam packet - datalog: {}, register: {}", 
+                    wp.datalog, wp.register);
+            }
+            Packet::Heartbeat(hb) => {
+                info!("Received Heartbeat packet - datalog: {}", 
+                    hb.datalog);
+            }
+        }
+
+        let _inverter = match self.config.enabled_inverter_with_datalog(datalog) {
+            Some(inverter) => inverter,
+            None => {
+                warn!("Unknown inverter datalog connected: {}, will continue processing its data", datalog);
+                return Ok(());
+            }
+        };
+
+        // Skip processing if we're shutting down
+        if self.is_shutting_down().await {
+            return Ok(());
+        }
+
+        // Process the packet
+        match packet {
+            Packet::TranslatedData(td) => {
+                // Skip heartbeat packets for InfluxDB
+                if !matches!(td.device_function, DeviceFunction::WriteSingle | DeviceFunction::WriteMulti) {
+                    // Send to InfluxDB
+                    if let Err(e) = self.send_to_influx(&td).await {
+                        error!("Failed to send data to InfluxDB: {}", e);
+                    }
+                }
+
+                // Cache register values
+                if let Err(e) = self.cache_register(td.register, td.values.clone()) {
+                    error!("Failed to cache register {}: {}", td.register, e);
+                }
+
+                // Send to MQTT
+                if let Err(e) = self.send_to_mqtt(&td).await {
+                    error!("Failed to send data to MQTT: {}", e);
+                }
+            }
+            Packet::ReadParam(rp) => {
+                // Cache register values
+                if let Err(e) = self.cache_register(rp.register, rp.values.clone()) {
+                    error!("Failed to cache register {}: {}", rp.register, e);
+                }
+            }
+            Packet::WriteParam(wp) => {
+                // Check if we're in read-only mode
+                if let Some(inverter) = self.config.enabled_inverter_with_datalog(wp.datalog) {
+                    if self.config.read_only() || inverter.read_only() {
+                        error!("Received write parameter packet but inverter is in read-only mode - datalog: {}, register: {}, value: {:?}", 
+                            wp.datalog, wp.register, wp.values);
+                        return Ok(());
+                    }
+                }
+
+                // Cache register values
+                if let Err(e) = self.cache_register(wp.register, wp.values.clone()) {
+                    error!("Failed to cache register {}: {}", wp.register, e);
+                }
+            }
+            Packet::Heartbeat(_) => {
+                // Heartbeat packets are handled in the main loop and don't need to be sent to InfluxDB
             }
         }
 
         Ok(())
     }
 
-    pub fn stop(&self) {
-        info!("Stopping coordinator...");
-        let _ = self.channels.to_inverter.send(crate::eg4::inverter::ChannelData::Shutdown);
-        let _ = self.channels.to_mqtt.send(mqtt::ChannelData::Shutdown);
-        // The datalog writer will be dropped when the Coordinator is dropped
-        // since it's wrapped in an Arc
+    async fn is_shutting_down(&self) -> bool {
+        // Check if any of the channels are closed by trying to subscribe
+        self.channels.to_influx.subscribe().is_closed() || 
+        self.channels.to_mqtt.subscribe().is_closed() || 
+        self.channels.to_database.subscribe().is_closed() ||
+        self.channels.read_register_cache.subscribe().is_closed()
     }
 
     async fn mqtt_receiver(&self) -> Result<()> {
@@ -231,20 +448,6 @@ impl Coordinator {
         }
 
         Ok(())
-    }
-
-    fn increment_packets_sent(&self, packet: &Packet) {
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.packets_sent += 1;
-            
-            // Increment counter for specific sent packet type
-            match packet {
-                Packet::Heartbeat(_) => stats.heartbeat_packets_sent += 1,
-                Packet::TranslatedData(_) => stats.translated_data_packets_sent += 1,
-                Packet::ReadParam(_) => stats.read_param_packets_sent += 1,
-                Packet::WriteParam(_) => stats.write_param_packets_sent += 1,
-            }
-        }
     }
 
     /// Process a command received from MQTT or other sources
@@ -561,7 +764,7 @@ impl Coordinator {
                         if let Some(error) = crate::eg4::packet::ModbusError::from_code(error_code) {
                             error!("Modbus error from inverter {}: {} (code: {:#04x})", 
                                 inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.modbus_errors += 1;
                                 // Print statistics after significant error
                                 info!("Statistics after Modbus error:");
@@ -590,11 +793,14 @@ impl Coordinator {
                             error!("Failed to update inverter serial: {}", e);
                         }
 
-                        if let Ok(mut stats) = self.stats.lock() {
+                        if let Ok(mut stats) = self.shared_stats.lock() {
                             stats.serial_mismatches += 1;
                             stats.last_messages.insert(
-                                inverter_serial,
-                                format!("Serial updated - was {}, now {}", inverter_serial, td.inverter)
+                                inverter.datalog().unwrap_or_default(),
+                                format!("Serial number mismatch for inverter {}: expected {}, got {}", 
+                                    inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), 
+                                    inverter.serial().map(|s| s.to_string()).unwrap_or_default(),
+                                    td.inverter)
                             );
                         }
                     }
@@ -619,7 +825,7 @@ impl Coordinator {
                 }
 
                 // Update packet stats
-                if let Ok(mut stats) = self.stats.lock() {
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.packets_received += 1;
                     let packet_clone = packet.clone();
                     stats.last_messages.insert(datalog, format!("{:?}", packet_clone));
@@ -639,7 +845,7 @@ impl Coordinator {
                             // Cache the register value
                             if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
                                 error!("Failed to cache register {}: {}", reg, e);
-                                if let Ok(mut stats) = self.stats.lock() {
+                                if let Ok(mut stats) = self.shared_stats.lock() {
                                     stats.register_cache_errors += 1;
                                 }
                             }
@@ -671,9 +877,9 @@ impl Coordinator {
                                 data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
                             }
 
-                            if let Err(e) = self.channels.to_influx.send(influx::ChannelData::InputData(data)) {
+                            if let Err(e) = self.send_to_influx(td).await {
                                 error!("Failed to send data to InfluxDB: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
+                                if let Ok(mut stats) = self.shared_stats.lock() {
                                     stats.influx_errors += 1;
                                 }
                             }
@@ -681,7 +887,7 @@ impl Coordinator {
 
                         if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
                             error!("Failed to publish input message: {}", e);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.mqtt_errors += 1;
                             }
                         }
@@ -697,7 +903,7 @@ impl Coordinator {
                             // Cache the register value
                             if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
                                 error!("Failed to cache register {}: {}", reg, e);
-                                if let Ok(mut stats) = self.stats.lock() {
+                                if let Ok(mut stats) = self.shared_stats.lock() {
                                     stats.register_cache_errors += 1;
                                 }
                             }
@@ -729,9 +935,9 @@ impl Coordinator {
                                 data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
                             }
 
-                            if let Err(e) = self.channels.to_influx.send(influx::ChannelData::HoldData(data)) {
+                            if let Err(e) = self.send_to_influx(td).await {
                                 error!("Failed to send data to InfluxDB: {}", e);
-                                if let Ok(mut stats) = self.stats.lock() {
+                                if let Ok(mut stats) = self.shared_stats.lock() {
                                     stats.influx_errors += 1;
                                 }
                             }
@@ -739,7 +945,7 @@ impl Coordinator {
                         
                         if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
                             error!("Failed to publish hold message: {}", e);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.mqtt_errors += 1;
                             }
                         }
@@ -750,13 +956,13 @@ impl Coordinator {
                         let value = td.value();
                         if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register, value)) {
                             error!("Failed to cache register {}: {}", register, e);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.register_cache_errors += 1;
                             }
                         }
                         if let Err(e) = self.publish_write_confirmation(register, value, inverter).await {
                             error!("Failed to publish write confirmation: {}", e);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.mqtt_errors += 1;
                             }
                         }
@@ -767,14 +973,14 @@ impl Coordinator {
                         for (register, value) in &pairs {
                             if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*register, *value)) {
                                 error!("Failed to cache register {}: {}", register, e);
-                                if let Ok(mut stats) = self.stats.lock() {
+                                if let Ok(mut stats) = self.shared_stats.lock() {
                                     stats.register_cache_errors += 1;
                                 }
                             }
                         }
                         if let Err(e) = self.publish_write_multi_confirmation(pairs, inverter).await {
                             error!("Failed to publish write multi confirmation: {}", e);
-                            if let Ok(mut stats) = self.stats.lock() {
+                            if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.mqtt_errors += 1;
                             }
                         }
@@ -782,119 +988,18 @@ impl Coordinator {
                 }
             }
             Packet::Heartbeat(_) => {
-                if let Ok(mut stats) = self.stats.lock() {
-                    stats.packets_received += 1;
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.heartbeat_packets_received += 1;
                 }
             }
             Packet::ReadParam(_) => {
-                if let Ok(mut stats) = self.stats.lock() {
-                    stats.packets_received += 1;
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.read_param_packets_received += 1;
                 }
             }
             Packet::WriteParam(_) => {
-                if let Ok(mut stats) = self.stats.lock() {
-                    stats.packets_received += 1;
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.write_param_packets_received += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn inverter_receiver(&self) -> Result<()> {
-        let mut receiver = self.channels.from_inverter.subscribe();
-        let mut buffer_size = 0;
-        const BUFFER_CLEAR_THRESHOLD: usize = 1024; // 1KB threshold for buffer clearing
-        const MAX_BUFFER_CLEAR_ATTEMPTS: u32 = 3; // Maximum number of buffer clear attempts
-
-        while let Ok(message) = receiver.recv().await {
-            match message {
-                inverter::ChannelData::Packet(packet) => {
-                    // Track buffer size
-                    buffer_size += std::mem::size_of_val(&packet);
-                    
-                    // Clear buffer if threshold exceeded, but with a limit on attempts
-                    if buffer_size >= BUFFER_CLEAR_THRESHOLD {
-                        debug!("Clearing receiver buffer (size: {} bytes)", buffer_size);
-                        let mut clear_attempts = 0;
-                        while clear_attempts < MAX_BUFFER_CLEAR_ATTEMPTS {
-                            match receiver.try_recv() {
-                                Ok(inverter::ChannelData::Packet(_)) => {
-                                    clear_attempts += 1;
-                                    continue;
-                                }
-                                Ok(_) => break, // Non-packet message, stop clearing
-                                Err(_) => break, // No more messages, stop clearing
-                            }
-                        }
-                        buffer_size = 0;
-                    }
-
-                    // Process packet based on type first to avoid unnecessary cloning
-                    let packet_clone = packet.clone();
-                    if let Packet::TranslatedData(ref td) = packet {
-                        // Find the inverter for this packet
-                        if let Some(inverter) = self.config.enabled_inverter_with_datalog(td.datalog()) {
-                            // Update packet stats before validation
-                            if let Ok(mut stats) = self.stats.lock() {
-                                stats.packets_received += 1;
-                                stats.last_messages.insert(td.datalog(), format!("{:?}", packet_clone));
-                                stats.translated_data_packets_received += 1;
-                            }
-
-                            // Process the packet even if serial validation fails
-                            if let Err(e) = self.process_inverter_packet(packet.clone(), &inverter).await {
-                                warn!("Failed to process packet: {}", e);
-                            }
-                        } else {
-                            warn!("No enabled inverter found for datalog {}", td.datalog());
-                        }
-                    } else {
-                        // Handle non-TranslatedData packets
-                        if let Ok(mut stats) = self.stats.lock() {
-                            stats.packets_received += 1;
-                            match &packet {
-                                Packet::Heartbeat(_) => stats.heartbeat_packets_received += 1,
-                                Packet::ReadParam(_) => stats.read_param_packets_received += 1,
-                                Packet::WriteParam(_) => stats.write_param_packets_received += 1,
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-                inverter::ChannelData::Connected(datalog) => {
-                    info!("Inverter connected: {}", datalog);
-                    if let Err(e) = self.inverter_connected(datalog).await {
-                        error!("Failed to process inverter connection: {}", e);
-                    }
-                }
-                inverter::ChannelData::Disconnect(serial) => {
-                    warn!("Inverter disconnected: {}", serial);
-                    if let Ok(mut stats) = self.stats.lock() {
-                        let count = stats.inverter_disconnections
-                            .entry(serial)
-                            .or_insert(0);
-                        *count += 1;
-                        // Print statistics after disconnection
-                        info!("Statistics after inverter disconnection:");
-                        stats.print_summary();
-                    }
-                }
-                inverter::ChannelData::Shutdown => {
-                    info!("Received shutdown signal");
-                    break;
-                }
-                inverter::ChannelData::Heartbeat(packet) => {
-                    // Handle heartbeat packets similarly to regular packets
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.packets_received += 1;
-                        stats.heartbeat_packets_received += 1;
-                        let packet_clone = packet.clone();
-                        stats.last_messages.insert(packet.datalog(), format!("{:?}", packet_clone));
-                    }
                 }
             }
         }
@@ -917,50 +1022,35 @@ impl Coordinator {
 
         info!("Reading all registers for inverter {}", datalog);
 
-        // Create a packet for stats tracking
-        let packet = Packet::TranslatedData(TranslatedData {
-            datalog: Serial::default(),
-            device_function: DeviceFunction::ReadHold,
-            inverter: Serial::default(),
-            register: 0,
-            values: vec![],
-        });
-
         let block_size = inverter.register_block_size();
 
         // Read all holding register blocks
         for start_register in (0..=240).step_by(block_size as usize) {
-            self.increment_packets_sent(&packet);
             self.read_hold_registers(&inverter, start_register as u16, block_size).await?;
         }
 
         // Read all input register blocks
         for start_register in (0..=200).step_by(block_size as usize) {
-            self.increment_packets_sent(&packet);
             self.read_input_block(&inverter, start_register as u16, block_size).await?;
         }
 
         // Read time registers
         for num in &[1, 2, 3] {
-            self.increment_packets_sent(&packet);
             self.read_time_register(
                 &inverter,
                 commands::time_register_ops::Action::AcCharge(*num),
             ).await?;
 
-            self.increment_packets_sent(&packet);
             self.read_time_register(
                 &inverter,
                 commands::time_register_ops::Action::ChargePriority(*num),
             ).await?;
 
-            self.increment_packets_sent(&packet);
             self.read_time_register(
                 &inverter,
                 commands::time_register_ops::Action::ForcedDischarge(*num),
             ).await?;
 
-            self.increment_packets_sent(&packet);
             self.read_time_register(
                 &inverter,
                 commands::time_register_ops::Action::AcFirst(*num),
@@ -983,7 +1073,7 @@ impl Coordinator {
         while retries > 0 {
             match self.channels.to_mqtt.send(channel_data.clone()) {
                 Ok(_) => {
-                    if let Ok(mut stats) = self.stats.lock() {
+                    if let Ok(mut stats) = self.shared_stats.lock() {
                         stats.mqtt_messages_sent += 1;
                     }
                     return Ok(());
@@ -998,7 +1088,7 @@ impl Coordinator {
             }
         }
 
-        if let Ok(mut stats) = self.stats.lock() {
+        if let Ok(mut stats) = self.shared_stats.lock() {
             stats.mqtt_errors += 1;
         }
         bail!("send(to_mqtt) failed after retries - channel closed?");
@@ -1014,7 +1104,7 @@ impl Coordinator {
             let topic = format!("{}/inputs/{}", inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), reg);
             if let Err(e) = self.publish_message(topic, value.to_string(), false).await {
                 error!("Failed to publish input message: {}", e);
-                if let Ok(mut stats) = self.stats.lock() {
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.mqtt_errors += 1;
                 }
             }
@@ -1033,7 +1123,7 @@ impl Coordinator {
             let topic = format!("{}/hold/{}", inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), reg);
             if let Err(e) = self.publish_message(topic, value.to_string(), true).await {
                 error!("Failed to publish hold message: {}", e);
-                if let Ok(mut stats) = self.stats.lock() {
+                if let Ok(mut stats) = self.shared_stats.lock() {
                     stats.mqtt_errors += 1;
                 }
             }
@@ -1050,7 +1140,7 @@ impl Coordinator {
         let topic = format!("{}/write/status", inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
         if let Err(e) = self.publish_message(topic, format!("OK: {} = {}", register, value), false).await {
             error!("Failed to publish write confirmation: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
+            if let Ok(mut stats) = self.shared_stats.lock() {
                 stats.mqtt_errors += 1;
             }
         }
@@ -1066,7 +1156,7 @@ impl Coordinator {
         let topic = format!("{}/write_multi/status", inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
         if let Err(e) = self.publish_message(topic, format!("OK: {:?}", pairs), false).await {
             error!("Failed to publish write multi confirmation: {}", e);
-            if let Ok(mut stats) = self.stats.lock() {
+            if let Ok(mut stats) = self.shared_stats.lock() {
                 stats.mqtt_errors += 1;
             }
         }
@@ -1077,7 +1167,7 @@ impl Coordinator {
     fn start_mqtt(&mut self) -> Result<()> {
         if self.config.mqtt().enabled() {
             info!("Initializing MQTT");
-            let mqtt = Mqtt::new((*self.config).clone(), self.channels.clone());
+            let mqtt = Mqtt::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone());
             self.mqtt = Some(Arc::new(mqtt));
         }
         Ok(())
@@ -1086,7 +1176,7 @@ impl Coordinator {
     fn start_influx(&mut self) -> Result<()> {
         if self.config.influx().enabled() {
             info!("Initializing InfluxDB");
-            let influx = Influx::new((*self.config).clone(), self.channels.clone());
+            let influx = Influx::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone());
             self.influx = Some(Arc::new(influx));
         }
         Ok(())
@@ -1096,7 +1186,7 @@ impl Coordinator {
         for db in &self.config.databases() {
             if db.enabled() {
                 info!("Initializing database {}", db.url());
-                let database = Database::new(db.clone(), self.channels.clone());
+                let database = Database::new(db.clone(), self.channels.clone(), self.shared_stats.clone());
                 self.databases.push(Arc::new(database));
             }
         }
@@ -1108,6 +1198,100 @@ impl Coordinator {
             info!("Initializing datalog writer");
             let writer = DatalogWriter::new(&path)?;
             self.datalog_writer = Some(Arc::new(writer));
+        }
+        Ok(())
+    }
+
+    fn cache_register(&self, register: u16, values: Vec<u8>) -> Result<()> {
+        for (i, value) in values.iter().enumerate() {
+            match self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register + i as u16, *value as u16)) {
+                Ok(_) => {
+                    // Increment stats after successful cache write
+                    if let Ok(mut stats) = self.shared_stats.lock() {
+                        stats.register_cache_writes += 1;
+                        debug!("Incremented register cache writes counter to {}", stats.register_cache_writes);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to cache register {}: {}", register + i as u16, e);
+                    if let Ok(mut stats) = self.shared_stats.lock() {
+                        stats.register_cache_errors += 1;
+                    }
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn send_to_influx(&self, td: &TranslatedData) -> Result<()> {
+        if !self.config.influx().enabled() {
+            return Ok(());
+        }
+
+        let mut data = serde_json::json!({
+            "time": chrono::Utc::now().timestamp(),
+            "serial": td.inverter.to_string(),
+            "datalog": td.datalog.to_string(),
+            "raw_data": {}
+        });
+
+        // Add raw register data
+        for (i, value) in td.values.iter().enumerate() {
+            data["raw_data"][(td.register + i as u16).to_string()] = serde_json::json!(format!("{:04x}", value));
+        }
+
+        // Send data to InfluxDB
+        match self.channels.to_influx.send(influx::ChannelData::InputData(data)) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!("Failed to send data to InfluxDB: {}", e);
+                if let Ok(mut stats) = self.shared_stats.lock() {
+                    stats.influx_errors += 1;
+                }
+                Err(e.into())
+            }
+        }
+    }
+
+    async fn send_to_mqtt(&self, td: &TranslatedData) -> Result<()> {
+        if !self.config.mqtt().enabled() {
+            return Ok(());
+        }
+
+        // Publish raw values
+        for (i, value) in td.values.iter().enumerate() {
+            let topic = format!("{}/inputs/{}", td.datalog, td.register + i as u16);
+            if let Err(e) = self.publish_message(topic, value.to_string(), false).await {
+                error!("Failed to publish input message: {}", e);
+                if let Ok(mut stats) = self.shared_stats.lock() {
+                    stats.mqtt_errors += 1;
+                }
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn increment_packets_sent(&self, packet: &Packet) {
+        if let Ok(mut stats) = self.shared_stats.lock() {
+            stats.packets_sent += 1;
+            debug!("Incremented total packets sent to {}", stats.packets_sent);
+
+            match packet {
+                Packet::TranslatedData(_) => stats.translated_data_packets_sent += 1,
+                Packet::ReadParam(_) => stats.read_param_packets_sent += 1,
+                Packet::WriteParam(_) => stats.write_param_packets_sent += 1,
+                Packet::Heartbeat(_) => stats.heartbeat_packets_sent += 1,
+            }
+        }
+    }
+
+    async fn send_to_inverter(&self, packet: Packet) -> Result<()> {
+        // Send packet to inverter
+        if let Err(e) = self.channels.to_inverter.send(eg4::inverter::ChannelData::Packet(packet)) {
+            bail!("Failed to send packet to inverter: {}", e);
         }
         Ok(())
     }

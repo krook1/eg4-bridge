@@ -1,6 +1,7 @@
 use crate::prelude::*;
 use std::time::Duration;
 
+#[derive(Clone)]
 pub struct Scheduler {
     config: ConfigWrapper,
     channels: Channels,
@@ -60,7 +61,7 @@ impl Scheduler {
                 _ = register_interval.tick() => {
                     for inverter in self.config.enabled_inverters() {
                         // Use inverter-specific interval if configured, otherwise use global
-                        let interval = inverter.register_read_interval.unwrap_or(global_interval);
+                        let _interval = inverter.register_read_interval.unwrap_or(global_interval);
                         
                         if let Err(e) = self.read_input_registers(&inverter).await {
                             error!("Failed to read registers for inverter {}: {}", inverter.serial().unwrap_or_default(), e);

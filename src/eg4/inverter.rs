@@ -8,7 +8,10 @@ use {
     tokio::io::{AsyncReadExt, AsyncWriteExt},
     std::time::Duration,
     net2::TcpStreamExt,
+    std::sync::{Arc, Mutex},
 };
+
+use crate::coordinator::PacketStats;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum ChannelData {
@@ -17,6 +20,8 @@ pub enum ChannelData {
     Packet(Packet),     // this one goes both ways through the channel.
     Shutdown,
     Heartbeat(Packet),
+    ModbusError(config::Inverter, u8, crate::eg4::packet::ModbusError),
+    SerialMismatch(config::Inverter, Serial, Serial),
 }
 pub type Sender = broadcast::Sender<ChannelData>;
 pub type Receiver = broadcast::Receiver<ChannelData>;
@@ -79,6 +84,8 @@ impl WaitForReply for Receiver {
                     }
                 }
                 (_, Ok(ChannelData::Shutdown)) => bail!("Channel shutdown received while waiting for reply"),
+                (_, Ok(ChannelData::ModbusError(_, _, _))) => {} // Modbus error, continue waiting
+                (_, Ok(ChannelData::SerialMismatch(_, _, _))) => {} // Serial mismatch, continue waiting
                 (_, Err(broadcast::error::TryRecvError::Empty)) => {
                     // Channel empty, sleep briefly before retrying
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -174,6 +181,7 @@ pub struct Inverter {
     config: ConfigWrapper,
     host: String,
     channels: Channels,
+    shared_stats: Arc<Mutex<PacketStats>>,
 }
 
 const READ_TIMEOUT_SECS: u64 = 1; // Multiplier for read_timeout from config
@@ -183,13 +191,20 @@ const TCP_KEEPALIVE_SECS: u64 = 60; // TCP keepalive interval
 
 impl Inverter {
     pub fn new(config: ConfigWrapper, inverter: &config::Inverter, channels: Channels) -> Self {
-        // remember which inverter this instance is for
-        let host = inverter.host().to_string();
-
         Self {
-            config,
-            host,
+            config: config.clone(),
+            host: inverter.host().to_string(),
             channels,
+            shared_stats: Arc::new(Mutex::new(PacketStats::default())),
+        }
+    }
+
+    pub fn new_with_stats(config: ConfigWrapper, inverter: &config::Inverter, channels: Channels, shared_stats: Arc<Mutex<PacketStats>>) -> Self {
+        Self {
+            config: config.clone(),
+            host: inverter.host().to_string(),
+            channels,
+            shared_stats,
         }
     }
 
@@ -213,8 +228,14 @@ impl Inverter {
         Ok(())
     }
 
-    pub fn stop(&self) {
+    pub async fn stop(&self) {
+        info!("Stopping inverter {}...", self.config().datalog().map(|s| s.to_string()).unwrap_or_default());
+        
+        // Send shutdown signal
         let _ = self.channels.to_inverter.send(ChannelData::Shutdown);
+        
+        // Give tasks time to process shutdown
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     pub async fn connect(&self) -> Result<()> {
@@ -253,9 +274,9 @@ impl Inverter {
             }
         }
 
-        let (reader, writer) = stream.into_split();
-
         info!("inverter {}: connected!", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+
+        let (reader, writer) = stream.into_split();
 
         // Start sender and receiver tasks
         let sender_task = self.sender(writer);
@@ -263,7 +284,7 @@ impl Inverter {
 
         // Send Connected message after tasks are started
         if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
-            warn!("Failed to send Connected message: {}", e);
+            warn!("{}:Failed to send Connected message: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), e);
         } else {
             info!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
@@ -291,70 +312,90 @@ impl Inverter {
     }
 
     async fn sender(&self, mut writer: tokio::net::tcp::OwnedWriteHalf) -> Result<()> {
-        let mut to_inverter_rx = self.channels.to_inverter.subscribe();
+        let mut receiver = self.channels.to_inverter.subscribe();
         let inverter_config = self.config();
+        let frame_factory = TcpFrameFactory::new(inverter_config.datalog().expect("datalog must be set"));
 
         loop {
-            match to_inverter_rx.recv().await {
-                Ok(ChannelData::Shutdown) => {
-                    info!("Received shutdown signal for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                    break;
-                }
-                Ok(ChannelData::Connected(_)) | Ok(ChannelData::Disconnect(_)) => {
-                    // These messages shouldn't be sent to this channel
-                    warn!("Unexpected connection status message in sender channel");
-                    continue;
-                }
-                Ok(ChannelData::Packet(packet)) => {
-                    if packet.datalog() != inverter_config.datalog().expect("datalog must be set") {
-                        warn!(
-                            "Datalog mismatch - packet: {}, inverter: {}",
-                            packet.datalog(),
-                            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()
-                        );
-                        continue;
-                    }
+            match receiver.recv().await {
+                Ok(channel_data) => {
+                    match channel_data {
+                        ChannelData::Packet(packet) => {
+                            let frame = frame_factory.create_frame(&packet)?;
+                            let bytes = frame;
 
-                    let bytes = TcpFrameFactory::build(&packet);
-                    if bytes.is_empty() {
-                        warn!("Generated empty packet data for {:?}", packet);
-                        continue;
-                    }
+                            // Log the packet being sent
+                            match &packet {
+                                Packet::Heartbeat(_) => {
+                                    info!("inverter {}: TX Heartbeat packet", 
+                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                                    if let Ok(mut stats) = self.shared_stats.lock() {
+                                        stats.packets_sent += 1;
+                                        stats.heartbeat_packets_sent += 1;
+                                    }
+                                }
+                                Packet::TranslatedData(td) => {
+                                    info!("inverter {}: TX TranslatedData packet - function: {:?}, register: {}", 
+                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                          td.device_function, td.register);
+                                    if let Ok(mut stats) = self.shared_stats.lock() {
+                                        stats.packets_sent += 1;
+                                        stats.translated_data_packets_sent += 1;
+                                    }
+                                }
+                                Packet::ReadParam(rp) => {
+                                    info!("inverter {}: TX ReadParam packet - register: {}", 
+                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                          rp.register);
+                                    if let Ok(mut stats) = self.shared_stats.lock() {
+                                        stats.packets_sent += 1;
+                                        stats.read_param_packets_sent += 1;
+                                    }
+                                }
+                                Packet::WriteParam(wp) => {
+                                    info!("inverter {}: TX WriteParam packet - register: {}, values: {:?}", 
+                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                          wp.register, wp.values);
+                                    if let Ok(mut stats) = self.shared_stats.lock() {
+                                        stats.packets_sent += 1;
+                                        stats.write_param_packets_sent += 1;
+                                    }
+                                }
+                            }
 
-                    debug!("inverter {}: TX {:?}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), bytes);
-                    
-                    // Use timeout for write operations
-                    match tokio::time::timeout(
-                        Duration::from_secs(WRITE_TIMEOUT_SECS),
-                        writer.write_all(&bytes)
-                    ).await {
-                        Ok(Ok(_)) => {
-                            // Ensure data is actually sent
-                            if let Err(_e) = writer.flush().await {
-                                bail!("Failed to write to socket for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                            // Use timeout for write operations
+                            match tokio::time::timeout(
+                                Duration::from_secs(WRITE_TIMEOUT_SECS),
+                                writer.write_all(&bytes)
+                            ).await {
+                                Ok(Ok(_)) => {
+                                    // Ensure data is actually sent
+                                    if let Err(_e) = writer.flush().await {
+                                        bail!("Failed to write to socket for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                                    }
+                                }
+                                Ok(Err(_e)) => bail!("Failed to write packet for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
+                                Err(_) => bail!("Write timeout after {} seconds for {}", WRITE_TIMEOUT_SECS, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
                             }
                         }
-                        Ok(Err(_e)) => bail!("Failed to write packet for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
-                        Err(_) => bail!("Write timeout after {} seconds for {}", WRITE_TIMEOUT_SECS, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()),
+                        ChannelData::Shutdown => {
+                            info!("inverter {}: sender received shutdown signal", 
+                                inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                            break;
+                        }
+                        _ => {}
                     }
-                }
-                Ok(ChannelData::Heartbeat(hb)) => {
-                    let packet = hb.clone();
-                    if let Err(_e) = self.handle_incoming_packet(packet) {
-                        warn!("Failed to send heartbeat packet: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                    }
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    bail!("{}:Channel closed", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                 }
                 Err(_e) => {
-                    warn!("Error reading from channel: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                    continue;
+                    warn!("eg4:inverter.rs {}: sender channel closed", 
+                        inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                    break;
                 }
             }
         }
 
-        info!("inverter {}: sender exiting", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+        info!("eg4:inverter.rs {}: sender exiting", 
+            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         Ok(())
     }
 
@@ -382,10 +423,16 @@ impl Inverter {
                 msg = to_inverter_rx.recv() => {
                     match msg {
                         Ok(ChannelData::Shutdown) => {
-                            info!("Receiver received shutdown signal");
+                            info!("Receiver received shutdown signal for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                            // Process any remaining data in buffer before exiting
+                            while let Some(packet) = decoder.decode_eof(&mut buf)? {
+                                if let Err(_e) = self.handle_incoming_packet(packet) {
+                                    warn!("Failed to handle final packet during shutdown");
+                                }
+                            }
                             break;
                         }
-                        Ok(_) => continue, // Ignore other messages
+                        Ok(_) => continue,
                         Err(_e) => {
                             warn!("Error receiving from channel");
                             continue;
@@ -423,11 +470,23 @@ impl Inverter {
                     // Process received data
                     while let Some(packet) = decoder.decode(&mut buf)? {
                         let packet_clone = packet.clone();
+                        info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                         
                         // Validate and process the packet
                         self.compare_datalog(&packet)?;
                         if let Packet::TranslatedData(_) = packet {
                             self.compare_inverter(&packet)?;
+                        }
+
+                        // Track received packet
+                        if let Ok(mut stats) = self.shared_stats.lock() {
+                            stats.packets_received += 1;
+                            match &packet {
+                                Packet::Heartbeat(_) => stats.heartbeat_packets_received += 1,
+                                Packet::TranslatedData(_) => stats.translated_data_packets_received += 1,
+                                Packet::ReadParam(_) => stats.read_param_packets_received += 1,
+                                Packet::WriteParam(_) => stats.write_param_packets_received += 1,
+                            }
                         }
 
                         if let Err(_e) = self.handle_incoming_packet(packet_clone) {

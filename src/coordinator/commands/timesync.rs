@@ -55,13 +55,8 @@ impl TimeSync {
         let mut receiver = self.channels.from_inverter.subscribe();
 
         // Send the read request to the inverter
-        if self
-            .channels
-            .to_inverter
-            .send(eg4::inverter::ChannelData::Packet(packet.clone()))
-            .is_err()
-        {
-            bail!("send(to_inverter) failed - channel closed?");
+        if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
+            bail!("Failed to send packet to coordinator: {}", e);
         }
 
         // Wait for and process the inverter's response
@@ -108,13 +103,8 @@ impl TimeSync {
                 // Create and send the time update packet
                 let packet = self.set_time_packet(now);
 
-                if self
-                    .channels
-                    .to_inverter
-                    .send(eg4::inverter::ChannelData::Packet(packet.clone()))
-                    .is_err()
-                {
-                    bail!("send(to_inverter) failed - channel closed?");
+                if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
+                    bail!("Failed to send packet to coordinator: {}", e);
                 }
 
                 // Wait for confirmation of the time update

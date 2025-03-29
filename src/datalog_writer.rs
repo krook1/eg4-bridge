@@ -2,14 +2,15 @@ use crate::prelude::*;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use log::{info, error};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DatalogWriter {
-    file: Mutex<std::fs::File>,
+    file: Arc<Mutex<std::fs::File>>,
     path: String,
+    values_written: Arc<Mutex<u64>>,
 }
 
 impl DatalogWriter {
@@ -47,8 +48,9 @@ impl DatalogWriter {
         info!("Successfully opened datalog file with permissions 0644");
 
         Ok(Self {
-            file: Mutex::new(file),
+            file: Arc::new(Mutex::new(file)),
             path: path.to_string(),
+            values_written: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -91,6 +93,12 @@ impl DatalogWriter {
                     error!("Failed to flush datalog file {}: {}", self.path, e);
                     return Err(e.into());
                 }
+                
+                // Update and log the number of values written
+                let mut values_written = self.values_written.lock().map_err(|_| anyhow::anyhow!("Failed to lock values counter"))?;
+                *values_written += data.len() as u64;
+                info!("Total values stored in datalog file: {}", *values_written);
+                
                 Ok(())
             },
             Err(e) => {
@@ -98,6 +106,10 @@ impl DatalogWriter {
                 Err(e.into())
             }
         }
+    }
+
+    pub async fn stop(&self) {
+        // Nothing specific to stop for now
     }
 }
 

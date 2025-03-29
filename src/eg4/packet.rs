@@ -1423,31 +1423,38 @@ pub trait PacketCommon {
     }
 }
 
-pub struct TcpFrameFactory;
+pub struct TcpFrameFactory {
+    datalog: Serial,
+}
+
 impl TcpFrameFactory {
-    pub fn build(data: &Packet) -> Vec<u8> {
-        let data_bytes = data.bytes();
-        let data_length = data_bytes.len() as u8;
-        let frame_length = (18 + data_length) as u16;
+    pub fn new(datalog: Serial) -> Self {
+        Self { datalog }
+    }
 
-        // debug!("data_length={}, frame_length={}", data_length, frame_length);
-
-        let mut r = vec![0; frame_length as usize];
-
-        r[0] = 161;
-        r[1] = 26;
-        r[2..4].copy_from_slice(&data.protocol().to_le_bytes());
-        r[4..6].copy_from_slice(&(frame_length - 6).to_le_bytes());
-        r[6] = 1; // unsure what this is, always seems to be 1
-        r[7] = data.tcp_function() as u8;
-
-        r[8..18].copy_from_slice(&data.datalog().data());
-        // WIP - trying to work out how to learn the inverter sn
-        //r[8..18].copy_from_slice(&[0; 10]);
-
-        r[18..].copy_from_slice(&data_bytes);
-
-        r
+    pub fn create_frame(&self, packet: &Packet) -> Result<Vec<u8>> {
+        let data_bytes = packet.bytes();
+        let mut frame = Vec::new();
+        
+        // Add datalog
+        frame.extend_from_slice(&self.datalog.data());
+        
+        // Add packet type
+        frame.push(match packet {
+            Packet::TranslatedData(_) => 0x01,
+            Packet::ReadParam(_) => 0x02,
+            Packet::WriteParam(_) => 0x03,
+            Packet::Heartbeat(_) => 0x04,
+        });
+        
+        // Add data length (2 bytes)
+        let len = data_bytes.len() as u16;
+        frame.extend_from_slice(&len.to_be_bytes());
+        
+        // Add data
+        frame.extend_from_slice(&data_bytes);
+        
+        Ok(frame)
     }
 }
 

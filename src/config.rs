@@ -64,7 +64,7 @@ pub struct Config {
 }
 
 /// Configuration for a single EG4 inverter
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct Inverter {
     /// Whether this inverter is enabled for operation
     #[serde(default = "Config::default_enabled")]

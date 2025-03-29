@@ -84,7 +84,7 @@ impl RegisterParser {
                 .ok_or_else(|| anyhow!("Could not find register type at index {}", type_idx))?;
             
             // Get the line number for this register type
-            let type_line = if let Some(pos) = content.find(&format!("\"register_type\":\"{}\"", register_type.register_type)) {
+            let _type_line = if let Some(pos) = content.find(&format!("\"register_type\":\"{}\"", register_type.register_type)) {
                 line_numbers.get(&pos).copied().unwrap_or(0)
             } else {
                 0
@@ -93,7 +93,7 @@ impl RegisterParser {
             // First check for duplicates within this register type
             for (reg_idx, register) in register_type.register_map.iter().enumerate() {
                 // Get the JSON value for this register
-                let reg_value = type_value.get("register_map")
+                let _reg_value = type_value.get("register_map")
                     .and_then(|arr| arr.get(reg_idx))
                     .ok_or_else(|| anyhow!("Could not find register at index {}", reg_idx))?;
                 
