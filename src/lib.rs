@@ -33,6 +33,7 @@ use crate::datalog_writer::DatalogWriter;
 use crate::eg4::inverter::Inverter;
 use crate::prelude::Channels;
 use std::error::Error;
+use std::time::Duration;
 
 /// Manages all application components and their lifecycle
 /// 
@@ -40,25 +41,24 @@ use std::error::Error;
 /// and provides methods to coordinate their startup and shutdown.
 #[derive(Clone)]
 pub struct Components {
-    pub coordinator: Coordinator,      // Main application coordinator
-    pub scheduler: Scheduler,          // Task scheduler
-    pub mqtt: Option<Mqtt>,           // Optional MQTT client
-    pub influx: Option<Influx>,       // Optional InfluxDB client
-    pub databases: Vec<Database>,     // List of configured databases
-    pub datalog_writer: Option<DatalogWriter>, // Optional data logger
-    #[allow(dead_code)]
+    pub coordinator: Arc<Coordinator>,      // Main application coordinator
+    pub scheduler: Arc<Scheduler>,          // Task scheduler
+    pub mqtt: Option<Arc<Mqtt>>,           // Optional MQTT client
+    pub influx: Option<Arc<Influx>>,       // Optional InfluxDB client
+    pub databases: Vec<Arc<Database>>,     // List of configured databases
+    pub datalog_writer: Option<Arc<DatalogWriter>>, // Optional data logger
     pub channels: Channels,           // Inter-component communication channels
 }
 
 impl Components {
     /// Creates a new Components instance with all required components
     pub fn new(
-        coordinator: Coordinator,
-        scheduler: Scheduler,
-        mqtt: Option<Mqtt>,
-        influx: Option<Influx>,
-        databases: Vec<Database>,
-        datalog_writer: Option<DatalogWriter>,
+        coordinator: Arc<Coordinator>,
+        scheduler: Arc<Scheduler>,
+        mqtt: Option<Arc<Mqtt>>,
+        influx: Option<Arc<Influx>>,
+        databases: Vec<Arc<Database>>,
+        datalog_writer: Option<Arc<DatalogWriter>>,
         channels: Channels,
     ) -> Self {
         Self {
@@ -90,7 +90,7 @@ impl Components {
         if let Some(influx) = &self.influx {
             influx.stop();
         }
-        if let Some(mqtt) = &mut self.mqtt {
+        if let Some(mqtt) = &self.mqtt {
             let _ = mqtt.stop().await;
         }
         for database in &self.databases {
@@ -122,11 +122,11 @@ pub async fn shutdown(
     
     // Create components instance for coordinated shutdown
     let mut components = Components {
-        coordinator: coordinator.clone(),
-        scheduler: scheduler.clone(),
-        mqtt: Some(mqtt.clone()),
-        influx: Some(influx.clone()),
-        databases: databases.clone(),
+        coordinator: Arc::new(coordinator),
+        scheduler: Arc::new(scheduler),
+        mqtt: Some(Arc::new(mqtt)),
+        influx: Some(Arc::new(influx)),
+        databases: databases.into_iter().map(Arc::new).collect(),
         datalog_writer: None,
         channels: channels.clone(),
     };
@@ -203,153 +203,82 @@ pub async fn app(
     
     // Start with RegisterCache as it's a dependency for other components
     info!("  Creating RegisterCache...");
-    let _register_cache = RegisterCache::new(channels.clone());
+    let register_cache = RegisterCache::new(channels.clone());
+    let register_cache_handle = tokio::spawn(async move {
+        if let Err(e) = register_cache.start().await {
+            error!("RegisterCache error: {}", e);
+        }
+    });
     
     // Create Coordinator which manages the overall application flow
     info!("  Creating Coordinator...");
     let config = Arc::new(config);
-    let mut coordinator = Coordinator::new(config.clone(), channels.clone());
+    let coordinator = Coordinator::new(config.clone(), channels.clone());
+    let mut coordinator_clone = coordinator.clone();
+    let coordinator_handle = tokio::spawn(async move {
+        if let Err(e) = coordinator_clone.start().await {
+            error!("Coordinator task failed: {}", e);
+        }
+    });
     
     // Initialize Scheduler for periodic tasks
     info!("  Creating Scheduler...");
     let scheduler = Scheduler::new((*config).clone(), channels.clone());
+    let mut scheduler_clone = scheduler.clone();
+    let scheduler_handle = tokio::spawn(async move {
+        if let Err(e) = scheduler_clone.start().await {
+            error!("Scheduler task failed: {}", e);
+        }
+    });
     
     // Set up MQTT client for external communication
     info!("  Creating MQTT client...");
     let mqtt = Mqtt::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
+    let mqtt_clone = mqtt.clone();
+    let mqtt_handle = tokio::spawn(async move {
+        if let Err(e) = mqtt_clone.start().await {
+            error!("MQTT task failed: {}", e);
+        }
+    });
     
-    // Initialize InfluxDB client for time-series data
+    // Set up InfluxDB client for time-series data
     info!("  Creating InfluxDB client...");
     let influx = Influx::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
+    let influx_clone = influx.clone();
+    let influx_handle = tokio::spawn(async move {
+        if let Err(e) = influx_clone.start().await {
+            error!("InfluxDB task failed: {}", e);
+        }
+    });
 
-    // Create inverter instances for each configured inverter
-    info!("  Creating Inverters...");
-    let inverters: Vec<_> = config
-        .enabled_inverters()
-        .into_iter()
-        .map(|inverter| Inverter::new((*config).clone(), &inverter, channels.clone()))
-        .collect();
-    info!("    Created {} inverter instances", inverters.len());
-
-    // Initialize database connections
-    info!("  Creating Databases...");
-    let databases: Vec<_> = config
-        .enabled_databases()
-        .into_iter()
-        .map(|database| Database::new(database, channels.clone(), coordinator.shared_stats.clone()))
-        .collect();
-    info!("    Created {} database instances", databases.len());
-
-    // Start all components in the correct order
-    info!("Starting components in sequence...");
-    
-    // Start databases first as they're a core dependency
-    info!("Starting databases...");
-    if let Err(e) = start_databases(databases.clone()).await {
-        error!("Failed to start databases: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
-    }
-    info!("Databases started successfully");
-
-    // Start InfluxDB before inverters to ensure data collection is ready
-    info!("Starting InfluxDB...");
-    if let Err(e) = influx.start().await {
-        error!("Failed to start InfluxDB: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
-    }
-    info!("InfluxDB started successfully");
-
-    // Start Coordinator before inverters to ensure it's ready to receive messages
-    info!("Starting Coordinator...");
-    if let Err(e) = coordinator.start().await {
-        error!("Failed to start Coordinator: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
-    }
-    info!("Coordinator started successfully");
-
-    // Start MQTT client to enable external communication
-    info!("Starting MQTT client...");
-    if let Err(e) = mqtt.start().await {
-        error!("Failed to start MQTT client: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
-    }
-    info!("MQTT client started successfully");
-
-    // Start Scheduler to begin periodic tasks
-    info!("Starting Scheduler...");
-    if let Err(e) = scheduler.start().await {
-        error!("Failed to start Scheduler: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
-    }
-    info!("Scheduler started successfully");
-
-    // Start all configured inverters
-    info!("Starting Inverters...");
-    if let Err(e) = start_inverters(inverters.clone()).await {
-        error!("Failed to start Inverters: {}", e);
-        let mut components = Components {
-            coordinator: coordinator.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-        components.stop().await;
-        return Err(e.into());
+    // Create inverter instances
+    info!("  Creating Inverter instances...");
+    let mut inverter_handles = Vec::new();
+    for inverter in config
+        .inverters()
+        .iter()
+        .filter(|inverter| inverter.enabled())
+        .map(|inverter| Inverter::new((*config).clone(), inverter, channels.clone()))
+    {
+        let inverter_clone = inverter.clone();
+        let handle = tokio::spawn(async move {
+            if let Err(e) = inverter_clone.start().await {
+                error!("Inverter task failed: {}", e);
+            }
+        });
+        inverter_handles.push(handle);
     }
     info!("Inverters started successfully");
+
+    // Initialize database connections
+    info!("  Creating Database connections...");
+    let databases: Vec<_> = config
+        .databases()
+        .iter()
+        .filter(|db| db.enabled)
+        .map(|db| Database::new(db.clone(), channels.clone(), coordinator.shared_stats.clone()))
+        .collect();
+    info!("    Created {} database connections", databases.len());
 
     // Wait for shutdown signal
     info!("Waiting for shutdown signal...");
@@ -357,16 +286,34 @@ pub async fn app(
 
     // Execute shutdown sequence
     info!("Shutdown signal received, stopping components...");
+    
+    // First stop all components
     let mut components = Components {
-        coordinator,
-        scheduler,
-        mqtt: Some(mqtt),
-        influx: Some(influx),
-        databases,
+        coordinator: Arc::new(coordinator),
+        scheduler: Arc::new(scheduler),
+        mqtt: Some(Arc::new(mqtt)),
+        influx: Some(Arc::new(influx)),
+        databases: databases.into_iter().map(Arc::new).collect(),
         datalog_writer: None,
-        channels,
+        channels: channels.clone(),
     };
     components.stop().await;
+
+    // Then wait for all task handles to complete
+    if let Err(e) = coordinator_handle.await {
+        error!("Error waiting for coordinator task: {}", e);
+    }
+    if let Err(e) = scheduler_handle.await {
+        error!("Error waiting for scheduler task: {}", e);
+    }
+    for handle in inverter_handles {
+        if let Err(e) = handle.await {
+            error!("Error waiting for inverter task: {}", e);
+        }
+    }
+    if let Err(e) = register_cache_handle.await {
+        error!("Error waiting for register cache task: {}", e);
+    }
 
     info!("Application shutdown complete");
     Ok(())

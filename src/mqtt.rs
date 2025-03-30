@@ -421,15 +421,10 @@ impl Mqtt {
         Ok(())
     }
 
-    pub async fn stop(&mut self) {
+    pub async fn stop(&self) -> Result<()> {
         info!("Stopping MQTT client...");
-        self.shutdown = true;
-
-        // Send shutdown signal
-        let _ = self.channels.from_mqtt.send(ChannelData::Shutdown);
-        
-        // Give tasks time to process shutdown
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let _ = self.channels.to_mqtt.send(ChannelData::Shutdown);
+        Ok(())
     }
 
     async fn setup(&self, client: AsyncClient) -> Result<()> {
