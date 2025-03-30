@@ -776,7 +776,7 @@ impl Coordinator {
                 }
 
                 // Log TCP function for debugging
-                debug!("Processing TCP function: {:?}", td.tcp_function());
+                trace!("Processing TCP function: {:?}", td.tcp_function());
 
                 // Check if serial matches configured inverter
                 if let Some(inverter_serial) = inverter.serial() {
@@ -1209,7 +1209,7 @@ impl Coordinator {
                     // Increment stats after successful cache write
                     if let Ok(mut stats) = self.shared_stats.lock() {
                         stats.register_cache_writes += 1;
-                        debug!("Incremented register cache writes counter to {}", stats.register_cache_writes);
+                        trace!("Incremented register cache writes counter to {}", stats.register_cache_writes);
                     }
                 }
                 Err(e) => {
@@ -1277,7 +1277,7 @@ impl Coordinator {
     fn increment_packets_sent(&self, packet: &Packet) {
         if let Ok(mut stats) = self.shared_stats.lock() {
             stats.packets_sent += 1;
-            debug!("Incremented total packets sent to {}", stats.packets_sent);
+            trace!("Incremented total packets sent to {}", stats.packets_sent);
 
             match packet {
                 Packet::TranslatedData(_) => stats.translated_data_packets_sent += 1,
