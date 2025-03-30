@@ -553,6 +553,7 @@ impl Coordinator {
 
         // Add delay between reads if configured
         if inverter.delay_ms().unwrap_or(0) > 0 {
+            info!("read_input_block sleeping {} ms", inverter.delay_ms().unwrap_or(0));
             tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
         }
         Ok(())
@@ -570,6 +571,7 @@ impl Coordinator {
 
         // Add delay between reads if configured
         if inverter.delay_ms().unwrap_or(0) > 0 {
+            info!("read_input_registers sleeping {} ms", inverter.delay_ms().unwrap_or(0));
             tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
         }
         Ok(())
@@ -587,6 +589,7 @@ impl Coordinator {
 
         // Add delay between reads if configured
         if inverter.delay_ms().unwrap_or(0) > 0 {
+            info!("read_hold_registers sleeping {} ms", inverter.delay_ms().unwrap_or(0));
             tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
         }
         Ok(())
@@ -604,6 +607,7 @@ impl Coordinator {
 
         // Add delay between reads if configured
         if inverter.delay_ms().unwrap_or(0) > 0 {
+            info!("read_param_register sleeping {} ms", inverter.delay_ms().unwrap_or(0));
             tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
         }
         Ok(())
@@ -667,6 +671,7 @@ impl Coordinator {
         
         // Add delay between reads if configured
         if inverter.delay_ms().unwrap_or(0) > 0 {
+            info!("read_time_Register sleeping {} ms", inverter.delay_ms().unwrap_or(0));
             tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
         }
         Ok(())

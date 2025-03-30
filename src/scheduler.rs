@@ -59,6 +59,7 @@ impl Scheduler {
                     }
                 }
                 _ = register_interval.tick() => {
+                    info!("register_interval.tick - should call read_input_registers()");
                     for inverter in self.config.enabled_inverters() {
                         // Use inverter-specific interval if configured, otherwise use global
                         let _interval = inverter.register_read_interval.unwrap_or(global_interval);
