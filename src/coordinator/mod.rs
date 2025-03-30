@@ -191,7 +191,6 @@ impl Coordinator {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        info!("Coordinator starting...");
         // Start all components
         self.start_mqtt()?;
         self.start_influx()?;
@@ -202,20 +201,16 @@ impl Coordinator {
         let mut receiver = self.channels.from_inverter.subscribe();
         let mut coordinator_receiver = self.channels.from_coordinator.subscribe();
 
-        info!("Coordinator channels initialized, starting message processing loop");
-
         loop {
             if shutdown {
                 info!("Coordinator shutting down, stopping message processing");
                 break;
             }
 
-            debug!("Coordinator waiting for messages...");
             tokio::select! {
                 msg = receiver.recv() => {
                     match msg {
                         Ok(inverter::ChannelData::Packet(packet)) => {
-                            debug!("Coordinator received inverter packet: {:?}", packet);
                             if let Err(e) = self.handle_packet(packet).await {
                                 error!("Failed to handle packet: {}", e);
                             }
@@ -243,7 +238,6 @@ impl Coordinator {
                             shutdown = true;
                         }
                         Ok(inverter::ChannelData::Heartbeat(packet)) => {
-                            debug!("Coordinator received heartbeat packet");
                             // Handle heartbeat packets using the same stats tracking as other packets
                             if let Err(e) = self.handle_packet(packet).await {
                                 error!("Failed to handle heartbeat packet: {}", e);
@@ -254,55 +248,53 @@ impl Coordinator {
                                 inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
                             if let Ok(mut stats) = self.shared_stats.lock() {
                                 stats.modbus_errors += 1;
+                                // Print statistics after significant error
+                                stats.print_summary();
                             }
                         }
                         Ok(inverter::ChannelData::SerialMismatch(inverter, expected, actual)) => {
                             error!("Serial number mismatch for inverter {}: expected {}, got {}", 
                                 inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), expected, actual);
+
                             if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.increment_serial_mismatches();
+                                stats.serial_mismatches += 1;
+                                stats.last_messages.insert(
+                                    inverter.datalog().unwrap_or_default(),
+                                    format!("Serial number mismatch for inverter {}: expected {}, got {}", 
+                                        inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), 
+                                        inverter.serial().map(|s| s.to_string()).unwrap_or_default(),
+                                        actual)
+                                );
                             }
                         }
                         Err(e) => {
-                            if matches!(e, tokio::sync::broadcast::error::RecvError::Closed) {
-                                info!("Inverter channel closed, shutting down coordinator");
-                                shutdown = true;
-                            } else {
-                                error!("Error receiving message from inverter: {}", e);
-                            }
+                            error!("Error receiving from channel: {}", e);
                         }
                     }
                 }
                 msg = coordinator_receiver.recv() => {
                     match msg {
-                        Ok(ChannelData::Packet(packet)) => {
-                            debug!("Coordinator received coordinator packet: {:?}", packet);
-                            if let Err(e) = self.handle_packet(packet).await {
-                                error!("Failed to handle packet: {}", e);
-                            }
-                        }
                         Ok(ChannelData::SendPacket(packet)) => {
-                            debug!("Coordinator received send packet request: {:?}", packet);
-                            if let Err(e) = self.channels.to_inverter.send(crate::eg4::inverter::ChannelData::Packet(packet)) {
-                                error!("Failed to forward packet to inverter: {}", e);
+                            if let Err(e) = self.send_to_inverter(packet).await {
+                                error!("Failed to send packet to inverter: {}", e);
                             }
                         }
                         Ok(ChannelData::Shutdown) => {
                             info!("Coordinator received shutdown signal");
                             shutdown = true;
                         }
+                        Ok(ChannelData::Packet(_)) => {
+                            // Ignore regular packets in this channel
+                        }
                         Err(e) => {
-                            if matches!(e, tokio::sync::broadcast::error::RecvError::Closed) {
-                                info!("Coordinator channel closed, shutting down coordinator");
-                                shutdown = true;
-                            } else {
-                                error!("Error receiving message from coordinator: {}", e);
-                            }
+                            error!("Error receiving from coordinator channel: {}", e);
                         }
                     }
                 }
             }
         }
+
+        info!("Coordinator shutdown complete");
         Ok(())
     }
 

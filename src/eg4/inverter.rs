@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam, Heartbeat};
+use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam};
 use crate::eg4::packet_decoder::PacketDecoder;
 
 use {
@@ -241,7 +241,7 @@ impl Inverter {
     pub async fn connect(&self) -> Result<()> {
         let inverter_config = self.config();
         info!(
-            "Inverter {} attempting connection to {}:{}",
+            "connecting to inverter {} at {}:{}",
             inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
             inverter_config.host(),
             inverter_config.port()
@@ -254,11 +254,7 @@ impl Inverter {
             Duration::from_secs(WRITE_TIMEOUT_SECS * 2),
             tokio::net::TcpStream::connect(inverter_hp)
         ).await {
-            Ok(Ok(stream)) => {
-                info!("Inverter {} TCP connection established", 
-                    inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                stream
-            },
+            Ok(Ok(stream)) => stream,
             Ok(Err(e)) => bail!("Failed to connect to inverter: {}", e),
             Err(_) => bail!("Connection timeout after {} seconds", WRITE_TIMEOUT_SECS * 2),
         };
@@ -278,8 +274,7 @@ impl Inverter {
             }
         }
 
-        info!("Inverter {} socket configured", 
-            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+        info!("inverter {}: connected!", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
 
         let (reader, writer) = stream.into_split();
 
@@ -287,17 +282,32 @@ impl Inverter {
         let sender_task = self.sender(writer);
         let receiver_task = self.receiver(reader);
 
-        info!("Inverter {} tasks started", 
-            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-
         // Send Connected message after tasks are started
-        if let Some(datalog) = inverter_config.datalog() {
-            info!("Inverter {} sending Connected message", datalog);
-            let _ = self.channels.to_coordinator.send(crate::coordinator::ChannelData::Packet(Packet::Heartbeat(Heartbeat {
-                datalog,
-            })));
+        if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
+            warn!("{}:Failed to send Connected message: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), e);
+        } else {
+            info!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
+        tokio::select! {
+            res = sender_task => {
+                if let Err(e) = res {
+                    warn!("Sender task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                } else {
+                    warn!("Sender task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                }
+            }
+            res = receiver_task => {
+                if let Err(e) = res {
+                    warn!("Receiver task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                } else {
+                    warn!("Receiver task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                }
+            }
+        }
+
+        // Ensure we send a disconnect message
+        let _ = self.channels.from_inverter.send(ChannelData::Disconnect(inverter_config.datalog().expect("datalog must be set")));
         Ok(())
     }
 

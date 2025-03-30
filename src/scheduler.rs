@@ -35,24 +35,17 @@ impl Scheduler {
     }
 
     pub async fn start(&self) -> Result<()> {
-        info!("Scheduler starting...");
         // Create intervals for time sync and register reading
         let mut timesync_interval = tokio::time::interval(Duration::from_secs(60));
         
         // Get the global register read interval
         let global_interval = self.config.register_read_interval().unwrap_or(60);
         let mut register_interval = tokio::time::interval(Duration::from_secs(global_interval));
-        
-        info!("Scheduler intervals created - timesync: 60s, register: {}s", global_interval);
-
-        // Create a channel for shutdown notification
-        let mut shutdown_rx = self.channels.from_coordinator.subscribe();
 
         loop {
-            debug!("Scheduler waiting for interval tick or shutdown...");
+            // Wait for either interval to tick
             tokio::select! {
                 _ = timesync_interval.tick() => {
-                    debug!("Timesync interval ticked");
                     for inverter in self.config.enabled_inverters() {
                         if let Err(e) = crate::coordinator::commands::timesync::TimeSync::new(
                             self.channels.clone(),
@@ -66,32 +59,14 @@ impl Scheduler {
                     }
                 }
                 _ = register_interval.tick() => {
-                    debug!("Register interval ticked");
+                    info!("register_interval.tick - should call read_input_registers()");
                     for inverter in self.config.enabled_inverters() {
-                        debug!("Reading registers for inverter {}", inverter.serial().unwrap_or_default());
                         // Use inverter-specific interval if configured, otherwise use global
                         let _interval = inverter.register_read_interval.unwrap_or(global_interval);
                         
                         if let Err(e) = self.read_input_registers(&inverter).await {
                             error!("Failed to read registers for inverter {}: {}", inverter.serial().unwrap_or_default(), e);
                         }
-                    }
-                }
-                msg = shutdown_rx.recv() => {
-                    match msg {
-                        Ok(crate::coordinator::ChannelData::Shutdown) => {
-                            info!("Scheduler received shutdown signal");
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            if matches!(e, tokio::sync::broadcast::error::RecvError::Closed) {
-                                info!("Scheduler channel closed, shutting down scheduler");
-                                return Ok(());
-                            } else {
-                                error!("Error receiving message from coordinator: {}", e);
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }

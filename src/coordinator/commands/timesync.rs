@@ -35,13 +35,6 @@ impl TimeSync {
     /// # Returns
     /// * `Result<()>` - Ok if successful, error if any step fails
     pub async fn run(&self) -> Result<()> {
-        // Skip time sync if inverter is in read-only mode to prevent accidental changes
-        if self.inverter.read_only() {
-            debug!("Skipping time sync for inverter {} (read-only mode)", 
-                self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
-            return Ok(());
-        }
-
         // Create a packet to read the current time from register 12
         // Register 12 contains the inverter's current time in BCD format
         let packet = Packet::TranslatedData(TranslatedData {
@@ -84,7 +77,7 @@ impl TimeSync {
 
             // Calculate the time difference between inverter and system
             let time_diff = dt - now;
-            debug!(
+            info!(
                 "Time sync for inverter {}: {}",
                 self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
                 time_diff
@@ -95,6 +88,13 @@ impl TimeSync {
             let max_limit = chrono::Duration::seconds(600);
             // Minimum time difference to trigger update (30 seconds) - prevents unnecessary updates
             let min_limit = chrono::Duration::seconds(30);
+
+            // Skip time sync if inverter is in read-only mode to prevent accidental changes
+            if self.inverter.read_only() {
+                info!("Skipping time sync for inverter {} (read-only mode)",
+                    self.inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
+                return Ok(());
+            }
 
             // Only update if time difference is significant but not too large
             // This prevents both unnecessary updates and dangerous large time jumps
