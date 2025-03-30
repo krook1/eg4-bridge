@@ -1,56 +1,46 @@
 use anyhow::Result;
-use log::{info, error};
+use log::{error, info};
 use tokio::signal::ctrl_c;
 use tokio::time::Duration;
+use std::sync::Arc;
+use env_logger;
+use tokio::sync::broadcast;
+use std::error::Error;
+
+use eg4_bridge::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
-    let shutdown_rx = shutdown_tx.subscribe();
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let config_file = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "config.yaml".to_string());
 
-    let app_result = tokio::select! {
-        result = eg4_bridge::app(shutdown_rx) => result,
-        _ = async {
-            if let Ok(()) = ctrl_c().await {
-                info!("Received SIGINT, initiating graceful shutdown");
-                let _ = shutdown_tx.send(());
-            }
-            info!("Waiting for app to complete shutdown...");
-            match tokio::time::timeout(Duration::from_secs(30), eg4_bridge::app(shutdown_tx.subscribe())).await {
-                Ok(result) => result,
-                Err(_) => {
-                    error!("Shutdown timed out after 30 seconds");
-                    Err(anyhow::anyhow!("Shutdown timed out"))
-                }
-            }
-        } => {
-            info!("Waiting for app to complete shutdown...");
-            match tokio::time::timeout(Duration::from_secs(30), eg4_bridge::app(shutdown_tx.subscribe())).await {
-                Ok(result) => result,
-                Err(_) => {
-                    error!("Shutdown timed out after 30 seconds");
-                    Err(anyhow::anyhow!("Shutdown timed out"))
-                }
-            }
-        }
-    };
+    let config = Config::new(config_file)?;
+    let config = Arc::new(ConfigWrapper::from_config(config));
 
-    Ok(match app_result {
-        Ok((_, stats)) => {
-            let stats = stats.lock().map_err(|e| anyhow::anyhow!("Failed to lock stats: {}", e))?;
-            info!("Final statistics:");
-            info!("  Total packets received: {}", stats.packets_received);
-            info!("  Total packets sent: {}", stats.packets_sent);
-            info!("  MQTT messages sent: {}", stats.mqtt_messages_sent);
-            info!("  InfluxDB writes: {}", stats.influx_writes);
-            info!("  Database writes: {}", stats.database_writes);
-            Ok(())
+    // Create a channel for shutdown signaling
+    let (shutdown_tx, _) = broadcast::channel(1);
+
+    // Handle Ctrl+C
+    let shutdown_tx_clone = shutdown_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Failed to listen for Ctrl+C: {}", e);
         }
-        Err(e) => {
-            error!("Application error: {}", e);
-            Err(e)
+        if let Err(e) = shutdown_tx_clone.send(()) {
+            error!("Failed to send shutdown signal: {}", e);
         }
-    }?)
+    });
+
+    // Run the application
+    let app_handle = tokio::spawn(eg4_bridge::app(shutdown_tx.subscribe(), config.clone()));
+
+    // Wait for the application to complete
+    if let Err(e) = app_handle.await? {
+        error!("Application error: {}", e);
+    }
+
+    Ok(())
 }
 
 

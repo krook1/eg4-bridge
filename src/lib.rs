@@ -125,7 +125,7 @@ pub async fn shutdown(
 pub async fn app(
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     _config: Arc<ConfigWrapper>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let options = Options::new();
     let config_file = options.config_file.clone();
 
