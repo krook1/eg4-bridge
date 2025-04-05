@@ -46,14 +46,20 @@ impl ReadInputs {
 
         let mut receiver = self.channels.from_inverter.subscribe();
 
-        info!("Sending read input packet to coordinator");
+        if let Packet::TranslatedData(td) = &packet {
+            info!("Sending read input packet to coordinator - function: {:?}, register: {}, datalog: {}", 
+                td.device_function, self.register, td.datalog);
+        }
         if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
             bail!("Failed to send packet to coordinator: {}", e);
         }
 
         info!("Waiting for reply from inverter");
         let packet = receiver.wait_for_reply(&packet).await?;
-        info!("Received reply from inverter");
+        if let Packet::TranslatedData(td) = &packet {
+            info!("Received reply from inverter - function: {:?}, register: {}, datalog: {}", 
+                td.device_function, self.register, td.datalog);
+        }
         Ok(packet)
     }
 }

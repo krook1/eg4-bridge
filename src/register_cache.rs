@@ -40,6 +40,7 @@ impl RegisterCache {
         let (tx, rx) = oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
         let channel_data = ChannelData::ReadRegister(register, tx);
+        info!("Reading register {} from cache", register);
         let _ = channels.read_register_cache.send(channel_data);
         rx.await
             .expect("unexpected error reading from register cache")
@@ -54,6 +55,7 @@ impl RegisterCache {
             match data {
                 ChannelData::ReadRegister(register, tx) => {
                     let value = self.register_data.lock().unwrap()[register as usize];
+                    info!("Cache hit for register {}: value = {}", register, value);
                     if let Ok(mut tx) = tx.lock() {
                         if let Some(tx) = tx.take() {
                             let _ = tx.send(value);
@@ -76,6 +78,7 @@ impl RegisterCache {
         while let Ok(data) = receiver.recv().await {
             match data {
                 ChannelData::RegisterData(register, value) => {
+                    info!("Caching register {} with value {}", register, value);
                     self.register_data.lock().unwrap()[register as usize] = value;
                 }
                 ChannelData::Shutdown => break,

@@ -379,50 +379,29 @@ impl Inverter {
 
         loop {
             match receiver.recv().await {
-                Ok(channel_data) => {
-                    match channel_data {
+                Ok(data) => {
+                    match data {
                         ChannelData::Packet(packet) => {
-                            let frame = frame_factory.create_frame(&packet)?;
-                            let bytes = frame;
-
-                            // Log the packet being sent
+                            // Log packet details
                             match &packet {
-                                Packet::Heartbeat(_) => {
-                                    info!("inverter {}: TX Heartbeat packet", 
-                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                                    if let Ok(mut stats) = self.shared_stats.lock() {
-                                        stats.packets_sent += 1;
-                                        stats.heartbeat_packets_sent += 1;
-                                    }
+                                Packet::Heartbeat(hb) => {
+                                    info!("[sender] Sending Heartbeat packet to inverter with datalog {}", hb.datalog);
                                 }
                                 Packet::TranslatedData(td) => {
-                                    info!("inverter {}: TX TranslatedData packet - function: {:?}, register: {}", 
-                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
-                                          td.device_function, td.register);
-                                    if let Ok(mut stats) = self.shared_stats.lock() {
-                                        stats.packets_sent += 1;
-                                        stats.translated_data_packets_sent += 1;
-                                    }
+                                    info!("[sender] Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
+                                        td.device_function, td.register, td.datalog);
                                 }
                                 Packet::ReadParam(rp) => {
-                                    info!("inverter {}: TX ReadParam packet - register: {}", 
-                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
-                                          rp.register);
-                                    if let Ok(mut stats) = self.shared_stats.lock() {
-                                        stats.packets_sent += 1;
-                                        stats.read_param_packets_sent += 1;
-                                    }
+                                    info!("[sender] Sending ReadParam packet to inverter - register: {}, datalog: {}", 
+                                        rp.register, rp.datalog);
                                 }
                                 Packet::WriteParam(wp) => {
-                                    info!("inverter {}: TX WriteParam packet - register: {}, values: {:?}", 
-                                          inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
-                                          wp.register, wp.values);
-                                    if let Ok(mut stats) = self.shared_stats.lock() {
-                                        stats.packets_sent += 1;
-                                        stats.write_param_packets_sent += 1;
-                                    }
+                                    info!("[sender] Sending WriteParam packet to inverter - register: {}, values: {:?}, datalog: {}", 
+                                        wp.register, wp.values, wp.datalog);
                                 }
                             }
+
+                            let bytes = frame_factory.create_frame(&packet)?;
 
                             // Use timeout for write operations
                             match tokio::time::timeout(
@@ -678,6 +657,8 @@ impl Inverter {
             register: 0x0001,
             values: vec![(power_limit >> 8) as u8, power_limit as u8],
         });
+        info!("[set_output_power_limit] Sending WriteParam packet to inverter - register: 0x0001, values: {:?}, datalog: {}", 
+            power_limit, packet.datalog());
         self.channels.to_inverter.send(ChannelData::Packet(packet))?;
         Ok(())
     }
@@ -689,6 +670,8 @@ impl Inverter {
             register: 0x0002,
             values: vec![(mode >> 8) as u8, mode as u8],
         });
+        info!("[set_grid_tie_mode] Sending WriteParam packet to inverter - register: 0x0002, values: {:?}, datalog: {}", 
+            mode, packet.datalog());
         self.channels.to_inverter.send(ChannelData::Packet(packet))?;
         Ok(())
     }
@@ -700,6 +683,8 @@ impl Inverter {
             register: 0x0003,
             values: vec![(current >> 8) as u8, current as u8],
         });
+        info!("[set_battery_charge_current] Sending WriteParam packet to inverter - register: 0x0003, values: {:?}, datalog: {}", 
+            current, packet.datalog());
         self.channels.to_inverter.send(ChannelData::Packet(packet))?;
         Ok(())
     }

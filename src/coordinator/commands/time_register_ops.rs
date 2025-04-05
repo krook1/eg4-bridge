@@ -80,6 +80,12 @@ impl ReadTimeRegister {
 
         let mut receiver = self.channels.from_inverter.subscribe();
 
+        // Log the packet being sent
+        if let Packet::TranslatedData(td) = &packet {
+            info!("[time_register_ops] Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
+                td.device_function, td.register, td.datalog);
+        }
+
         if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
             bail!("Failed to send packet to coordinator: {}", e);
         }
@@ -180,6 +186,12 @@ impl SetTimeRegister {
         });
 
         let mut receiver = self.channels.from_inverter.subscribe();
+
+        // Log packet details
+        if let Packet::TranslatedData(td) = &packet {
+            info!("[set_register] Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
+                td.device_function, register, td.datalog);
+        }
 
         if self
             .channels
