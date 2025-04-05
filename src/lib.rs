@@ -344,13 +344,19 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
     let total = inverters.len();
     info!("Starting {} inverters...", total);
     for (i, inverter) in inverters.into_iter().enumerate() {
-        let datalog = inverter.config().datalog().map(|s| s.to_string()).unwrap_or_default();
-        info!("Starting inverter {}/{} (datalog: {})", i + 1, total, datalog);
+        let config = inverter.config();
+        let datalog = config.datalog().map(|s| s.to_string()).unwrap_or_default();
+        let host = config.host();
+        let port = config.port();
+        debug!("Starting inverter {}/{} (datalog: {}, host: {}, port: {})", 
+            i + 1, total, datalog, host, port);
+        
         if let Err(e) = inverter.start().await {
             error!("Failed to start inverter {}: {}", datalog, e);
             bail!("Failed to start inverter {}: {}", datalog, e);
         }
-        info!("Successfully started inverter {}/{} (datalog: {})", i + 1, total, datalog);
+        debug!("Successfully started inverter {}/{} (datalog: {}, host: {}, port: {})", 
+            i + 1, total, datalog, host, port);
     }
     Ok(())
 }
