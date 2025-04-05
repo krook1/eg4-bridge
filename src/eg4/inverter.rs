@@ -534,9 +534,15 @@ impl Inverter {
                         info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                         
                         // Validate and process the packet
-                        self.compare_datalog(&packet)?;
+                        if let Err(e) = self.compare_datalog(&packet) {
+                            debug!("Skipping packet due to datalog mismatch: {}", e);
+                            continue;
+                        }
                         if let Packet::TranslatedData(_) = packet {
-                            self.compare_inverter(&packet)?;
+                            if let Err(e) = self.compare_inverter(&packet) {
+                                debug!("Skipping packet due to inverter mismatch: {}", e);
+                                continue;
+                            }
                         }
 
                         // Track received packet
