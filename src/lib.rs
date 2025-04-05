@@ -18,9 +18,6 @@ pub mod eg4;           // EG4 inverter protocol implementation
 pub mod error;         // Error handling and types
 pub mod register;      // Register definitions and parsing
 
-// Get the package version from Cargo.toml
-const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 use crate::prelude::*;
 use std::sync::{Arc, Mutex};
 use crate::coordinator::PacketStats;
@@ -147,53 +144,8 @@ pub async fn shutdown(
 /// in the correct order to ensure proper dependencies are available.
 pub async fn app(
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
-    _config: Arc<ConfigWrapper>,
+    config: Arc<ConfigWrapper>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // Parse command line options
-    let options = Options::new();
-    let config_file = options.config_file.clone();
-
-    // Initialize logging with default level
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}] {}",
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
-                record.level(),
-                record.module_path().unwrap_or(""),
-                record.args()
-            )
-        })
-        .write_style(env_logger::WriteStyle::Never)
-        .init();
-
-    info!("Starting eg4-bridge {} with config file: {}", CARGO_PKG_VERSION, config_file);
-    info!("eg4-bridge {} starting", CARGO_PKG_VERSION);
-
-    // Load and validate configuration
-    let config = ConfigWrapper::new(options.config_file).unwrap_or_else(|err| {
-        error!("Failed to load config: {:?}", err);
-        std::process::exit(255);
-    });
-
-    // Update log level based on configuration
-    if let Err(e) = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(config.loglevel()))
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {} {}] {}",
-                chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f"),
-                record.level(),
-                record.module_path().unwrap_or(""),
-                record.args()
-            )
-        })
-        .write_style(env_logger::WriteStyle::Never)
-        .try_init() {
-        error!("Failed to update log level: {}", e);
-    }
-
     // Initialize communication channels
     info!("Initializing channels...");
     let channels = Channels::new();
@@ -207,7 +159,6 @@ pub async fn app(
     
     // Create Coordinator which manages the overall application flow
     info!("  Creating Coordinator...");
-    let config = Arc::new(config);
     let mut coordinator = Coordinator::new(config.clone(), channels.clone());
     
     // Initialize Scheduler for periodic tasks
