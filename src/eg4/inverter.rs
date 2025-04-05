@@ -612,10 +612,11 @@ impl Inverter {
                     Packet::WriteParam(wp) => format!("WriteParam(register={:?}, datalog={})", wp.register, wp.datalog),
                     Packet::Heartbeat(hb) => format!("Heartbeat(datalog={})", hb.datalog),
                 };
-                bail!("Failed to forward packet from inverter {} ({})", 
+                warn!("Failed to forward packet from inverter {} ({}) - channel may be closed", 
                     inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
                     packet_info,
                 );
+                Ok(())
             }
         }
     }
