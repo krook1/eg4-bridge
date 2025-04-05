@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use log::info;
 
 use eg4::{
     inverter::WaitForReply,
@@ -29,6 +30,12 @@ impl ReadInputs {
     }
 
     pub async fn run(&self) -> Result<Packet> {
+        info!("Starting read input operation for inverter {} at register {} with count {}", 
+            self.inverter.serial().expect("serial must be set for read_inputs command"),
+            self.register,
+            self.count
+        );
+
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set for read_inputs command"),
             device_function: DeviceFunction::ReadInput,
@@ -39,11 +46,14 @@ impl ReadInputs {
 
         let mut receiver = self.channels.from_inverter.subscribe();
 
+        info!("Sending read input packet to coordinator");
         if let Err(e) = self.channels.to_coordinator.send(crate::coordinator::ChannelData::SendPacket(packet.clone())) {
             bail!("Failed to send packet to coordinator: {}", e);
         }
 
+        info!("Waiting for reply from inverter");
         let packet = receiver.wait_for_reply(&packet).await?;
+        info!("Received reply from inverter");
         Ok(packet)
     }
 }
