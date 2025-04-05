@@ -289,7 +289,75 @@ impl Coordinator {
         
         // Initialize datalog writer if configured
         self.start_datalog_writer()?;
+
+        // Verify subscribers are ready
+        self.verify_subscribers().await?;
         
+        Ok(())
+    }
+
+    async fn verify_subscribers(&self) -> Result<()> {
+        info!("Verifying subscribers...");
+
+        // Check datalog writer subscriber if configured
+        if let Some(writer) = &self.datalog_writer {
+            let mut receiver = self.channels.from_inverter.subscribe();
+            if receiver.is_closed() {
+                error!("Datalog writer channel is closed - this is a fatal error");
+                bail!("Datalog writer channel is closed");
+            }
+            info!("Datalog writer subscriber is ready");
+        } else {
+            info!("Datalog writer not configured, skipping verification");
+        }
+
+        // Check InfluxDB subscriber if enabled
+        if self.config.influx().enabled() {
+            let mut receiver = self.channels.to_influx.subscribe();
+            if receiver.is_closed() {
+                error!("InfluxDB channel is closed - this is a fatal error");
+                bail!("InfluxDB channel is closed");
+            }
+            info!("InfluxDB subscriber is ready");
+        } else {
+            info!("InfluxDB not configured, skipping verification");
+        }
+
+        // Check MQTT subscriber if enabled
+        if self.config.mqtt().enabled() {
+            let mut receiver = self.channels.to_mqtt.subscribe();
+            if receiver.is_closed() {
+                error!("MQTT channel is closed - this is a fatal error");
+                bail!("MQTT channel is closed");
+            }
+            info!("MQTT subscriber is ready");
+        } else {
+            info!("MQTT not configured, skipping verification");
+        }
+
+        // Check database subscribers if configured
+        if !self.databases.is_empty() {
+            let mut receiver = self.channels.to_database.subscribe();
+            if receiver.is_closed() {
+                error!("Database channel is closed - this is a fatal error");
+                bail!("Database channel is closed");
+            }
+            info!("Database subscribers are ready");
+        } else {
+            info!("No databases configured, skipping verification");
+        }
+
+        info!("All required subscribers are ready");
+        Ok(())
+    }
+
+    fn start_datalog_writer(&mut self) -> Result<()> {
+        if let Some(path) = self.config.datalog_file() {
+            info!("Initializing datalog writer at {}", path);
+            let writer = DatalogWriter::new(&path)?;
+            self.datalog_writer = Some(Arc::new(writer));
+            info!("Datalog writer initialized successfully");
+        }
         Ok(())
     }
 
@@ -1200,15 +1268,6 @@ impl Coordinator {
             info!("Initializing InfluxDB");
             let influx = Influx::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone());
             self.influx = Some(Arc::new(influx));
-        }
-        Ok(())
-    }
-
-    fn start_datalog_writer(&mut self) -> Result<()> {
-        if let Some(path) = self.config.datalog_file() {
-            info!("Initializing datalog writer");
-            let writer = DatalogWriter::new(&path)?;
-            self.datalog_writer = Some(Arc::new(writer));
         }
         Ok(())
     }

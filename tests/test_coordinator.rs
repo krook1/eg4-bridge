@@ -44,6 +44,8 @@ async fn publishes_read_hold_mqtt() {
         // verify register_cache is set
         let register_cache::ChannelData::RegisterData(a, b) = to_register_cache.recv().await?
         else {
+            // This is unreachable because we know the coordinator will send RegisterData
+            // for ReadHold packets based on the implementation
             unreachable!()
         };
         assert_eq!(a, 12);

@@ -28,6 +28,8 @@ impl Serialize for ValueTemplate {
     {
         match self {
             ValueTemplate::String(str) => serializer.serialize_str(str),
+            // This is unreachable because ValueTemplate::None and ValueTemplate::Default
+            // are skipped during serialization via #[serde(skip_serializing_if = "ValueTemplate::is_none")]
             _ => unreachable!(),
         }
     }

@@ -360,11 +360,33 @@ impl Inverter {
         });
 
         // Send Connected message after tasks are started
-        if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
-            warn!("{}:Failed to send Connected message: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), e);
-            debug!("Detailed Connected message error: {:?}", e);
-        } else {
-            debug!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+        let mut retries = 3;
+        let mut connected = false;
+        while retries > 0 && !connected {
+            match self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
+                Ok(_) => {
+                    debug!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                    connected = true;
+                }
+                Err(e) => {
+                    warn!("{}:Failed to send Connected message (attempt {}): {}", 
+                        inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                        retries,
+                        e
+                    );
+                    debug!("Detailed Connected message error: {:?}", e);
+                    if retries > 1 {
+                        // Wait before retrying
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    }
+                    retries -= 1;
+                }
+            }
+        }
+
+        if !connected {
+            error!("{}:Failed to send Connected message after all retries - channel may be closed", 
+                inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
         // Store the task handles in the inverter for later use if needed
