@@ -533,16 +533,33 @@ impl Inverter {
                         let packet_clone = packet.clone();
                         info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
                         
-                        // Validate and process the packet
-                        if let Err(e) = self.compare_datalog(&packet) {
-                            debug!("Skipping packet due to datalog mismatch: {}", e);
-                            continue;
-                        }
-                        if let Packet::TranslatedData(_) = packet {
-                            if let Err(e) = self.compare_inverter(&packet) {
-                                debug!("Skipping packet due to inverter mismatch: {}", e);
-                                continue;
+                        // Handle configuration updates asynchronously
+                        let config_updates = async {
+                            let mut updates = Vec::new();
+                            
+                            // Check datalog serial
+                            if let Err(e) = self.compare_datalog(&packet) {
+                                if let Some(new_datalog) = self.extract_datalog_serial(&packet) {
+                                    updates.push(("datalog", new_datalog));
+                                }
                             }
+                            
+                            // Check inverter serial for TranslatedData packets
+                            if let Packet::TranslatedData(_) = packet {
+                                if let Err(e) = self.compare_inverter(&packet) {
+                                    if let Some(new_serial) = self.extract_inverter_serial(&packet) {
+                                        updates.push(("serial", new_serial));
+                                    }
+                                }
+                            }
+                            
+                            updates
+                        };
+
+                        // Process the packet immediately
+                        if let Err(e) = self.handle_incoming_packet(packet_clone) {
+                            warn!("Failed to handle packet: {}", e);
+                            continue;
                         }
 
                         // Track received packet
@@ -556,10 +573,24 @@ impl Inverter {
                             }
                         }
 
-                        if let Err(_e) = self.handle_incoming_packet(packet_clone) {
-                            warn!("Failed to handle packet");
-                            // Continue processing other packets even if one fails
-                            continue;
+                        // Apply configuration updates after packet processing
+                        let updates = config_updates.await;
+                        for (field, value) in updates {
+                            match field {
+                                "datalog" => {
+                                    info!("Updating datalog serial from {} to {}", 
+                                        inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                        value);
+                                    self.update_datalog_serial(&value).await?;
+                                },
+                                "serial" => {
+                                    info!("Updating inverter serial from {} to {}", 
+                                        inverter_config.serial().map(|s| s.to_string()).unwrap_or_default(),
+                                        value);
+                                    self.update_inverter_serial(&value).await?;
+                                },
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -864,6 +895,43 @@ impl Inverter {
             values: vec![(power_factor >> 8) as u8, power_factor as u8],
         });
         self.channels.to_inverter.send(ChannelData::Packet(packet))?;
+        Ok(())
+    }
+
+    fn extract_datalog_serial(&self, packet: &Packet) -> Option<String> {
+        match packet {
+            Packet::TranslatedData(td) => Some(td.datalog.to_string()),
+            Packet::ReadParam(rp) => Some(rp.datalog.to_string()),
+            Packet::WriteParam(wp) => Some(wp.datalog.to_string()),
+            Packet::Heartbeat(hb) => Some(hb.datalog.to_string()),
+        }
+    }
+
+    fn extract_inverter_serial(&self, packet: &Packet) -> Option<String> {
+        if let Packet::TranslatedData(td) = packet {
+            Some(td.inverter.to_string())
+        } else {
+            None
+        }
+    }
+
+    async fn update_datalog_serial(&self, new_serial: &str) -> Result<()> {
+        if let Err(e) = self.config.update_inverter_datalog(
+            self.config().datalog().expect("datalog must be set"),
+            new_serial.into()
+        ) {
+            error!("Failed to update datalog serial in config: {}", e);
+        }
+        Ok(())
+    }
+
+    async fn update_inverter_serial(&self, new_serial: &str) -> Result<()> {
+        if let Err(e) = self.config.update_inverter_serial(
+            self.config().serial().expect("serial must be set"),
+            new_serial.into()
+        ) {
+            error!("Failed to update inverter serial in config: {}", e);
+        }
         Ok(())
     }
 }
