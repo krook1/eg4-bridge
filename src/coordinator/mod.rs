@@ -1013,8 +1013,12 @@ impl Coordinator {
     }
 
     async fn inverter_connected(&self, datalog: Serial) -> Result<()> {
+        info!("Received connection notification for inverter {}", datalog);
         let inverter = match self.config.enabled_inverter_with_datalog(datalog) {
-            Some(inverter) => inverter,
+            Some(inverter) => {
+                info!("Found configured inverter with datalog {}", datalog);
+                inverter
+            },
             None => {
                 warn!("Unknown inverter datalog connected: {}, will continue processing its data", datalog);
                 return Ok(());
@@ -1022,6 +1026,7 @@ impl Coordinator {
         };
 
         if !inverter.publish_holdings_on_connect() {
+            info!("Skipping register reading for inverter {} as publish_holdings_on_connect is false", datalog);
             return Ok(());
         }
 

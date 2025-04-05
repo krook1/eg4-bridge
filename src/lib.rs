@@ -390,10 +390,16 @@ async fn start_databases(databases: Vec<Database>) -> Result<()> {
 /// This function initializes connections to all enabled inverters
 /// and begins monitoring their status and data.
 async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
-    for inverter in inverters {
+    let total = inverters.len();
+    info!("Starting {} inverters...", total);
+    for (i, inverter) in inverters.into_iter().enumerate() {
+        let datalog = inverter.config().datalog().map(|s| s.to_string()).unwrap_or_default();
+        info!("Starting inverter {}/{} (datalog: {})", i + 1, total, datalog);
         if let Err(e) = inverter.start().await {
-            bail!("Failed to start inverter: {}", e);
+            error!("Failed to start inverter {}: {}", datalog, e);
+            bail!("Failed to start inverter {}: {}", datalog, e);
         }
+        info!("Successfully started inverter {}/{} (datalog: {})", i + 1, total, datalog);
     }
     Ok(())
 }
