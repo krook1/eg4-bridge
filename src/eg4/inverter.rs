@@ -582,19 +582,38 @@ impl Inverter {
 
     fn handle_incoming_packet(&self, packet: Packet) -> Result<()> {
         let inverter_config = self.config();
+        
+        // Try to send the packet and handle the result
         match self.channels.from_inverter.send(ChannelData::Packet(packet.clone())) {
-            Ok(_) => Ok(()),
-            Err(_e) => {
+            Ok(_) => {
+                debug!("Successfully forwarded packet from inverter {} to coordinator", 
+                    inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                Ok(())
+            }
+            Err(e) => {
                 let packet_info = match &packet {
                     Packet::TranslatedData(td) => format!("TranslatedData(register={:?}, datalog={})", td.register, td.datalog),
                     Packet::ReadParam(rp) => format!("ReadParam(register={:?}, datalog={})", rp.register, rp.datalog),
                     Packet::WriteParam(wp) => format!("WriteParam(register={:?}, datalog={})", wp.register, wp.datalog),
                     Packet::Heartbeat(hb) => format!("Heartbeat(datalog={})", hb.datalog),
                 };
-                warn!("Failed to forward packet from inverter {} ({}) - channel may be closed", 
-                    inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
-                    packet_info,
-                );
+                
+                // Log the specific error
+                match e {
+                    broadcast::error::SendError(_) => {
+                        error!("Failed to forward packet from inverter {} ({}) - channel is closed", 
+                            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                            packet_info
+                        );
+                    }
+                    _ => {
+                        error!("Failed to forward packet from inverter {} ({}) - unexpected error: {}", 
+                            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                            packet_info,
+                            e
+                        );
+                    }
+                }
                 Ok(())
             }
         }
