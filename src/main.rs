@@ -24,6 +24,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Err(e) = tokio::signal::ctrl_c().await {
             error!("Failed to listen for Ctrl+C: {}", e);
         }
+        info!("Ctrl+C received, initiating shutdown");
         if let Err(e) = shutdown_tx_clone.send(()) {
             error!("Failed to send shutdown signal: {}", e);
         }
