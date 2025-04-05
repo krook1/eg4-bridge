@@ -17,6 +17,7 @@ use commands::{
 
 use std::sync::{Arc, Mutex};
 use crate::eg4::inverter;
+use std::error::Error;
 
 // Sleep durations - keeping only the ones actively used
 const RETRY_DELAY_MS: u64 = 1000;    // 1 second
@@ -151,6 +152,76 @@ pub struct Coordinator {
     pub shared_stats: Arc<Mutex<PacketStats>>,
 }
 
+/// Manages all application components and their lifecycle
+/// 
+/// This struct holds references to all major components of the application
+/// and provides methods to coordinate their startup and shutdown.
+#[derive(Clone)]
+pub struct Components {
+    pub coordinator: Coordinator,      // Main application coordinator
+    pub scheduler: Scheduler,          // Task scheduler
+    pub mqtt: Option<Mqtt>,           // Optional MQTT client
+    pub influx: Option<Influx>,       // Optional InfluxDB client
+    pub databases: Vec<Database>,     // List of configured databases
+    pub datalog_writer: Option<DatalogWriter>, // Optional data logger
+    #[allow(dead_code)]
+    pub channels: Channels,           // Inter-component communication channels
+}
+
+impl Components {
+    /// Creates a new Components instance with all required components
+    pub fn new(
+        coordinator: Coordinator,
+        scheduler: Scheduler,
+        mqtt: Option<Mqtt>,
+        influx: Option<Influx>,
+        databases: Vec<Database>,
+        datalog_writer: Option<DatalogWriter>,
+        channels: Channels,
+    ) -> Self {
+        Self {
+            coordinator,
+            scheduler,
+            mqtt,
+            influx,
+            databases,
+            datalog_writer,
+            channels,
+        }
+    }
+
+    /// Gracefully stops all components in the correct order
+    /// 
+    /// The shutdown sequence is:
+    /// 1. Coordinator (to stop processing new commands)
+    /// 2. InfluxDB (to stop data collection)
+    /// 3. MQTT (to stop message publishing)
+    /// 4. Databases (to stop data storage)
+    /// 5. Datalog writer (to stop logging)
+    pub async fn stop(&mut self) {
+        info!("Stopping all components...");
+        
+        // Stop coordinator first to prevent new command processing
+        self.coordinator.stop();
+
+        // Stop optional components if they exist
+        if let Some(influx) = &self.influx {
+            influx.stop();
+        }
+        if let Some(mqtt) = &mut self.mqtt {
+            let _ = mqtt.stop().await;
+        }
+        for database in &self.databases {
+            database.stop();
+        }
+        if let Some(writer) = &self.datalog_writer {
+            let _ = writer.stop();
+        }
+
+        info!("Shutdown complete");
+    }
+}
+
 #[allow(dead_code)]
 impl Coordinator {
     pub fn new(config: Arc<ConfigWrapper>, channels: Channels) -> Self {
@@ -190,111 +261,35 @@ impl Coordinator {
         let _ = self.channels.to_register_cache.send(register_cache::ChannelData::Shutdown);
     }
 
-    pub async fn start(&mut self) -> Result<()> {
-        // Start all components
+    async fn start(&mut self) -> Result<()> {
+        // Initialize all components in dependency order
+        info!("Initializing components...");
+        
+        // Start with RegisterCache as it's a dependency for other components
+        info!("  Creating RegisterCache...");
+        let _register_cache = RegisterCache::new(self.channels.clone());
+        
+        // Initialize MQTT client if enabled
         self.start_mqtt()?;
+        
+        // Initialize InfluxDB client if enabled
         self.start_influx()?;
-        self.start_databases()?;
+        
+        // Initialize databases
+        let databases = self.config.databases()
+            .iter()
+            .filter(|db| db.enabled())
+            .map(|db| {
+                info!("Initializing database {}", db.url());
+                Database::new(db.clone(), self.channels.clone(), self.shared_stats.clone())
+            })
+            .collect::<Vec<_>>();
+        
+        self.start_databases(databases).await?;
+        
+        // Initialize datalog writer if configured
         self.start_datalog_writer()?;
-
-        let mut shutdown = false;
-        let mut receiver = self.channels.from_inverter.subscribe();
-        let mut coordinator_receiver = self.channels.from_coordinator.subscribe();
-
-        loop {
-            if shutdown {
-                info!("Coordinator shutting down, stopping message processing");
-                break;
-            }
-
-            tokio::select! {
-                msg = receiver.recv() => {
-                    match msg {
-                        Ok(inverter::ChannelData::Packet(packet)) => {
-                            if let Err(e) = self.handle_packet(packet).await {
-                                error!("Failed to handle packet: {}", e);
-                            }
-                        }
-                        Ok(inverter::ChannelData::Connected(datalog)) => {
-                            info!("Inverter connected: {}", datalog);
-                            if let Err(e) = self.inverter_connected(datalog).await {
-                                error!("Failed to process inverter connection: {}", e);
-                            }
-                        }
-                        Ok(inverter::ChannelData::Disconnect(serial)) => {
-                            warn!("Inverter disconnected: {}", serial);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                let count = stats.inverter_disconnections
-                                    .entry(serial)
-                                    .or_insert(0);
-                                *count += 1;
-                                // Print statistics after disconnection
-                                info!("Statistics after inverter disconnection:");
-                                stats.print_summary();
-                            }
-                        }
-                        Ok(inverter::ChannelData::Shutdown) => {
-                            info!("Coordinator received shutdown signal");
-                            shutdown = true;
-                        }
-                        Ok(inverter::ChannelData::Heartbeat(packet)) => {
-                            // Handle heartbeat packets using the same stats tracking as other packets
-                            if let Err(e) = self.handle_packet(packet).await {
-                                error!("Failed to handle heartbeat packet: {}", e);
-                            }
-                        }
-                        Ok(inverter::ChannelData::ModbusError(inverter, error_code, error)) => {
-                            error!("Modbus error from inverter {}: {} (code: {:#04x})", 
-                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.modbus_errors += 1;
-                                // Print statistics after significant error
-                                stats.print_summary();
-                            }
-                        }
-                        Ok(inverter::ChannelData::SerialMismatch(inverter, expected, actual)) => {
-                            error!("Serial number mismatch for inverter {}: expected {}, got {}", 
-                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), expected, actual);
-
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.serial_mismatches += 1;
-                                stats.last_messages.insert(
-                                    inverter.datalog().unwrap_or_default(),
-                                    format!("Serial number mismatch for inverter {}: expected {}, got {}", 
-                                        inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), 
-                                        inverter.serial().map(|s| s.to_string()).unwrap_or_default(),
-                                        actual)
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!("Error receiving from channel: {}", e);
-                        }
-                    }
-                }
-                msg = coordinator_receiver.recv() => {
-                    match msg {
-                        Ok(ChannelData::SendPacket(packet)) => {
-                            if let Err(e) = self.send_to_inverter(packet).await {
-                                error!("Failed to send packet to inverter: {}", e);
-                            }
-                        }
-                        Ok(ChannelData::Shutdown) => {
-                            info!("Coordinator received shutdown signal");
-                            shutdown = true;
-                        }
-                        Ok(ChannelData::Packet(_)) => {
-                            // Ignore regular packets in this channel
-                        }
-                        Err(e) => {
-                            error!("Error receiving from coordinator channel: {}", e);
-                        }
-                    }
-                }
-            }
-        }
-
-        info!("Coordinator shutdown complete");
+        
         Ok(())
     }
 
@@ -1192,17 +1187,6 @@ impl Coordinator {
         Ok(())
     }
 
-    fn start_databases(&mut self) -> Result<()> {
-        for db in &self.config.databases() {
-            if db.enabled() {
-                info!("Initializing database {}", db.url());
-                let database = Database::new(db.clone(), self.channels.clone(), self.shared_stats.clone());
-                self.databases.push(Arc::new(database));
-            }
-        }
-        Ok(())
-    }
-
     fn start_datalog_writer(&mut self) -> Result<()> {
         if let Some(path) = self.config.datalog_file() {
             info!("Initializing datalog writer");
@@ -1303,6 +1287,206 @@ impl Coordinator {
         if let Err(e) = self.channels.to_inverter.send(eg4::inverter::ChannelData::Packet(packet)) {
             bail!("Failed to send packet to inverter: {}", e);
         }
+        Ok(())
+    }
+
+    /// Starts all configured database connections
+    /// 
+    /// This function initializes connections to all enabled databases
+    /// and ensures they are ready to accept data.
+    pub async fn start_databases(&mut self, databases: Vec<Database>) -> Result<()> {
+        info!("Starting database connections...");
+        for (i, database) in databases.iter().enumerate() {
+            trace!("Starting database {}/{}...", i + 1, databases.len());
+            if let Err(e) = database.start().await {
+                error!("Failed to start database: {}", e);
+                bail!("Failed to start database: {}", e);
+            }
+            trace!("Database {}/{} started successfully", i + 1, databases.len());
+        }
+        info!("All databases started successfully");
+        Ok(())
+    }
+
+    /// Starts all configured inverter connections
+    /// 
+    /// This function initializes connections to all enabled inverters
+    /// and begins monitoring their status and data.
+    async fn start_inverters(&self, inverters: Vec<Inverter>) -> Result<()> {
+        let total = inverters.len();
+        info!("Starting {} inverters...", total);
+        for (i, inverter) in inverters.into_iter().enumerate() {
+            let config = inverter.config();
+            let datalog = config.datalog().map(|s| s.to_string()).unwrap_or_default();
+            let host = config.host();
+            let port = config.port();
+            debug!("Starting inverter {}/{} (datalog: {}, host: {}, port: {})", 
+                i + 1, total, datalog, host, port);
+            
+            if let Err(e) = inverter.start().await {
+                error!("Failed to start inverter {}: {}", datalog, e);
+                debug!("Detailed error for inverter {}: {:?}", datalog, e);
+                bail!("Failed to start inverter {}: {}", datalog, e);
+            }
+            debug!("Successfully started inverter {}/{} (datalog: {}, host: {}, port: {})", 
+                i + 1, total, datalog, host, port);
+        }
+        Ok(())
+    }
+
+    /// Handles the application shutdown sequence
+    /// 
+    /// This function coordinates the shutdown of all components and ensures
+    /// that final statistics are collected before the application exits.
+    pub async fn shutdown(
+        &self,
+        _shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+        _config: Arc<ConfigWrapper>,
+        channels: Channels,
+        scheduler: Scheduler,
+        mqtt: Mqtt,
+        influx: Influx,
+        databases: Vec<Database>,
+    ) -> Result<((), Arc<Mutex<PacketStats>>)> {
+        info!("Initiating shutdown sequence");
+        
+        // Create components instance for coordinated shutdown
+        let mut components = Components {
+            coordinator: self.clone(),
+            scheduler: scheduler.clone(),
+            mqtt: Some(mqtt.clone()),
+            influx: Some(influx.clone()),
+            databases: databases.clone(),
+            datalog_writer: None,
+            channels: channels.clone(),
+        };
+
+        // Execute shutdown sequence
+        components.stop().await;
+        info!("Shutdown complete");
+
+        // Collect final statistics after all components are stopped
+        let stats = components.coordinator.shared_stats.clone();
+
+        Ok(((), stats))
+    }
+
+    /// Main application entry point
+    /// 
+    /// This function initializes and starts all components of the application
+    /// in the correct order to ensure proper dependencies are available.
+    pub async fn app(
+        mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+        config: Arc<ConfigWrapper>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Initialize communication channels
+        info!("Initializing channels...");
+        let channels = Channels::new();
+
+        // Initialize all components in dependency order
+        info!("Initializing components...");
+        
+        // Start with RegisterCache as it's a dependency for other components
+        info!("  Creating RegisterCache...");
+        let _register_cache = RegisterCache::new(channels.clone());
+        
+        // Create Coordinator which manages the overall application flow
+        info!("  Creating Coordinator...");
+        let mut coordinator = Coordinator::new(config.clone(), channels.clone());
+        
+        // Initialize Scheduler for periodic tasks
+        info!("  Creating Scheduler...");
+        let scheduler = Scheduler::new((*config).clone(), channels.clone());
+        
+        // Set up MQTT client for external communication
+        info!("  Creating MQTT client...");
+        let mqtt = Mqtt::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
+        
+        // Initialize InfluxDB client for time-series data
+        info!("  Creating InfluxDB client...");
+        let influx = Influx::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
+
+        // Create inverter instances for each configured inverter
+        info!("  Creating Inverters...");
+        let inverters: Vec<_> = config
+            .enabled_inverters()
+            .into_iter()
+            .map(|inverter| Inverter::new((*config).clone(), &inverter, channels.clone()))
+            .collect();
+        info!("    Created {} inverter instances", inverters.len());
+
+        // Initialize database connections
+        info!("  Creating Databases...");
+        let databases: Vec<_> = config
+            .enabled_databases()
+            .into_iter()
+            .map(|database| Database::new(database, channels.clone(), coordinator.shared_stats.clone()))
+            .collect();
+        info!("    Created {} database instances", databases.len());
+
+        // Start all components in the correct order
+        info!("Starting components in sequence...");
+        
+        // Start databases first as they're a core dependency
+        info!("Starting databases...");
+        if let Err(e) = coordinator.start_databases(databases.clone()).await {
+            error!("Failed to start databases: {}", e);
+            let mut components = Components {
+                coordinator: coordinator.clone(),
+                scheduler: scheduler.clone(),
+                mqtt: Some(mqtt.clone()),
+                influx: Some(influx.clone()),
+                databases: databases.clone(),
+                datalog_writer: None,
+                channels: channels.clone(),
+            };
+            components.stop().await;
+            return Err(e.into());
+        }
+        info!("Databases started successfully");
+
+        // Start InfluxDB
+        info!("Starting InfluxDB...");
+        if let Err(e) = influx.start().await {
+            error!("Failed to start InfluxDB: {}", e);
+            return Err(e.into());
+        }
+        info!("InfluxDB started successfully");
+
+        // Start Coordinator
+        info!("Starting Coordinator...");
+        if let Err(e) = coordinator.start().await {
+            error!("Failed to start Coordinator: {}", e);
+            return Err(e.into());
+        }
+        info!("Coordinator started successfully");
+
+        // Start inverters
+        info!("Starting inverters...");
+        if let Err(e) = coordinator.start_inverters(inverters).await {
+            error!("Failed to start inverters: {}", e);
+            return Err(e.into());
+        }
+        info!("Inverters started successfully");
+
+        // Wait for shutdown signal
+        info!("Waiting for shutdown signal...");
+        let _ = shutdown_rx.recv().await;
+
+        // Execute shutdown sequence
+        info!("Shutdown signal received, stopping components...");
+        let mut components = Components {
+            coordinator,
+            scheduler,
+            mqtt: Some(mqtt),
+            influx: Some(influx),
+            databases,
+            datalog_writer: None,
+            channels,
+        };
+        components.stop().await;
+
+        info!("Application shutdown complete");
         Ok(())
     }
 }
