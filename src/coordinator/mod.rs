@@ -871,6 +871,8 @@ impl Coordinator {
 
                         // Write to datalog file if enabled
                         if let Some(writer) = &self.datalog_writer {
+                            info!("Writing input data to datalog file - inverter: {}, datalog: {}, registers: {}", 
+                                td.inverter, td.datalog, pairs.len());
                             if let Err(e) = writer.write_input_data(td.inverter, td.datalog, &pairs) {
                                 error!("Failed to write to datalog file: {}", e);
                             }
@@ -929,6 +931,8 @@ impl Coordinator {
 
                         // Write to datalog file if enabled
                         if let Some(writer) = &self.datalog_writer {
+                            info!("Writing hold data to datalog file - inverter: {}, datalog: {}, registers: {}", 
+                                td.inverter, td.datalog, pairs.len());
                             if let Err(e) = writer.write_hold_data(td.inverter, td.datalog, &pairs) {
                                 error!("Failed to write to datalog file: {}", e);
                             }

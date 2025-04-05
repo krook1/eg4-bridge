@@ -55,10 +55,14 @@ impl DatalogWriter {
     }
 
     pub fn write_hold_data(&self, serial: Serial, datalog: Serial, data: &[(u16, u16)]) -> Result<()> {
+        info!("Writing hold data to datalog - serial: {}, datalog: {}, registers: {}", 
+            serial, datalog, data.len());
         self.write_data(serial, datalog, "hold", data)
     }
 
     pub fn write_input_data(&self, serial: Serial, datalog: Serial, data: &[(u16, u16)]) -> Result<()> {
+        info!("Writing input data to datalog - serial: {}, datalog: {}, registers: {}", 
+            serial, datalog, data.len());
         self.write_data(serial, datalog, "input", data)
     }
 
@@ -97,7 +101,8 @@ impl DatalogWriter {
                 // Update and log the number of values written
                 let mut values_written = self.values_written.lock().map_err(|_| anyhow::anyhow!("Failed to lock values counter"))?;
                 *values_written += data.len() as u64;
-                info!("Total values stored in datalog file: {}", *values_written);
+                info!("Successfully wrote {} registers to datalog file. Total values stored: {}", 
+                    data.len(), *values_written);
                 
                 Ok(())
             },
