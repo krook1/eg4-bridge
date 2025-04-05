@@ -332,13 +332,26 @@ impl Coordinator {
             }
         }
 
-        let _inverter = match self.config.enabled_inverter_with_datalog(datalog) {
-            Some(inverter) => inverter,
-            None => {
-                warn!("Unknown inverter datalog connected: {}, will continue processing its data", datalog);
-                return Ok(());
+        // Check for datalog mismatch and update if needed
+        if let Some(inverter) = self.config.enabled_inverter_with_datalog(datalog) {
+            // Datalog matches, check serial for TranslatedData packets
+            if let Packet::TranslatedData(td) = &packet {
+                if let Some(current_serial) = inverter.serial() {
+                    if current_serial != td.inverter {
+                        info!("Updating inverter serial from {} to {}", current_serial, td.inverter);
+                        if let Err(e) = self.config.update_inverter_serial(current_serial, td.inverter) {
+                            error!("Failed to update inverter serial: {}", e);
+                        }
+                    }
+                }
             }
-        };
+        } else {
+            // Datalog doesn't match, update configuration
+            info!("Updating inverter datalog to {}", datalog);
+            if let Err(e) = self.config.update_inverter_datalog(datalog, datalog) {
+                error!("Failed to update inverter datalog: {}", e);
+            }
+        }
 
         // Skip processing if we're shutting down
         if self.is_shutting_down().await {
