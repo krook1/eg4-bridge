@@ -247,24 +247,24 @@ impl Inverter {
 
     pub async fn connect(&self) -> Result<()> {
         let inverter_config = self.config();
-        info!(
-            "Attempting to connect to inverter {} at {}:{}",
+        debug!(
+            "Starting connection process for inverter {} at {}:{}",
             inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
             inverter_config.host(),
             inverter_config.port()
         );
 
         let inverter_hp = (inverter_config.host().to_owned(), inverter_config.port());
-        info!("Initiating TCP connection to {}:{}", inverter_config.host(), inverter_config.port());
+        debug!("Resolved host and port: {:?}", inverter_hp);
 
         // Attempt TCP connection with timeout
-        info!("Attempting TCP connection with {}s timeout", WRITE_TIMEOUT_SECS * 2);
+        debug!("Attempting TCP connection with {}s timeout", WRITE_TIMEOUT_SECS * 2);
         let stream = match tokio::time::timeout(
             Duration::from_secs(WRITE_TIMEOUT_SECS * 2),
             tokio::net::TcpStream::connect(inverter_hp)
         ).await {
             Ok(Ok(stream)) => {
-                info!("TCP connection successfully established to {}:{}", 
+                debug!("TCP connection successfully established to {}:{}", 
                     inverter_config.host(), 
                     inverter_config.port()
                 );
@@ -289,7 +289,7 @@ impl Inverter {
         };
 
         // Configure TCP socket
-        info!("Configuring TCP socket options");
+        debug!("Configuring TCP socket options");
         let std_stream = stream.into_std()?;
         if let Err(e) = std_stream.set_keepalive(Some(Duration::new(TCP_KEEPALIVE_SECS, 0))) {
             warn!("Failed to set TCP keepalive: {}", e);
@@ -308,14 +308,13 @@ impl Inverter {
             }
         }
 
-        info!("inverter {}: TCP connection and socket configuration complete!", 
-            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default()
-        );
+        debug!("TCP socket configuration complete");
 
         let (reader, writer) = stream.into_split();
+        debug!("TCP stream split into reader and writer");
 
         // Start sender and receiver tasks
-        info!("Starting sender and receiver tasks");
+        debug!("Starting sender and receiver tasks");
         let sender_task = self.sender(writer);
         let receiver_task = self.receiver(reader);
 
@@ -323,7 +322,7 @@ impl Inverter {
         if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
             warn!("{}:Failed to send Connected message: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), e);
         } else {
-            info!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+            debug!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
         tokio::select! {

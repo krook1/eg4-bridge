@@ -6,6 +6,7 @@ use std::error::Error;
 use std::time::Duration;
 use clap::Parser;
 use std::io::Write;
+use tokio::select;
 
 use eg4_bridge::prelude::*;
 
@@ -54,40 +55,32 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // Create a channel for shutdown signaling
     let (shutdown_tx, _) = broadcast::channel(1);
 
-    // Handle Ctrl+C
-    let shutdown_tx_clone = shutdown_tx.clone();
-    tokio::spawn(async move {
-        if let Err(e) = tokio::signal::ctrl_c().await {
-            error!("Failed to listen for Ctrl+C: {}", e);
-        }
-        info!("Ctrl+C received, initiating shutdown");
-        if let Err(e) = shutdown_tx_clone.send(()) {
-            error!("Failed to send shutdown signal: {}", e);
-        }
-    });
-
     // Run the application
     let app_handle = tokio::spawn(eg4_bridge::app(shutdown_tx.subscribe(), config.clone()));
 
-    // If runtime is specified, spawn a task to terminate after the specified duration
+    // Handle runtime and Ctrl+C
     if let Some(time) = args.time {
-        let shutdown_tx_clone = shutdown_tx.clone();
-        tokio::spawn(async move {
-            info!("Runtime of {} seconds specified, will terminate automatically", time);
-            tokio::time::sleep(Duration::from_secs(time)).await;
-            info!("Runtime duration reached, initiating shutdown");
-            if let Err(e) = shutdown_tx_clone.send(()) {
-                error!("Failed to send shutdown signal: {}", e);
+        info!("Runtime of {} seconds specified, will terminate automatically", time);
+        let duration = Duration::from_secs(time);
+        
+        select! {
+            _ = tokio::time::sleep(duration) => {
+                info!("Runtime duration reached, terminating");
+                std::process::exit(0);
             }
-        });
+            _ = tokio::signal::ctrl_c() => {
+                info!("Ctrl+C received, terminating");
+                std::process::exit(0);
+            }
+        }
+    } else {
+        // If no runtime specified, just wait for Ctrl+C
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Failed to listen for Ctrl+C: {}", e);
+        }
+        info!("Ctrl+C received, terminating");
+        std::process::exit(0);
     }
-
-    // Wait for the application to complete
-    if let Err(e) = app_handle.await? {
-        error!("Application error: {}", e);
-    }
-
-    Ok(())
 }
 
 
