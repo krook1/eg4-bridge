@@ -1296,6 +1296,25 @@ impl Coordinator {
     }
 
     async fn send_to_inverter(&self, packet: Packet) -> Result<()> {
+        // Log the packet type being sent
+        match &packet {
+            Packet::Heartbeat(hb) => {
+                info!("Sending Heartbeat packet to inverter with datalog {}", hb.datalog);
+            }
+            Packet::TranslatedData(td) => {
+                info!("Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
+                    td.device_function, td.register, td.datalog);
+            }
+            Packet::ReadParam(rp) => {
+                info!("Sending ReadParam packet to inverter - register: {}, datalog: {}", 
+                    rp.register, rp.datalog);
+            }
+            Packet::WriteParam(wp) => {
+                info!("Sending WriteParam packet to inverter - register: {}, values: {:?}, datalog: {}", 
+                    wp.register, wp.values, wp.datalog);
+            }
+        }
+
         // Send packet to inverter
         if let Err(e) = self.channels.to_inverter.send(eg4::inverter::ChannelData::Packet(packet)) {
             bail!("Failed to send packet to inverter: {}", e);
