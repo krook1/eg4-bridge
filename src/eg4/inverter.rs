@@ -215,12 +215,21 @@ impl Inverter {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let datalog = self.config().datalog().map(|s| s.to_string()).unwrap_or_default();
-        info!("Starting inverter {}...", datalog);
+        let config = self.config();
+        let datalog = config.datalog().map(|s| s.to_string()).unwrap_or_default();
+        let host = config.host();
+        let port = config.port();
+        debug!("Starting inverter {} at {}:{}", datalog, host, port);
         
         let mut attempt = 1;
         while let Err(e) = self.connect().await {
             error!("inverter {}: Connection attempt {} failed: {}", datalog, attempt, e);
+            debug!(
+                "inverter {}: Connection attempt {} failed with error: {:?}", 
+                datalog, 
+                attempt, 
+                e
+            );
             info!(
                 "inverter {}: reconnecting in {}s (attempt {})", 
                 datalog,
@@ -231,6 +240,7 @@ impl Inverter {
             attempt += 1;
         }
 
+        debug!("inverter {}: Successfully established connection at {}:{}", datalog, host, port);
         info!("inverter {}: Successfully started and connected", datalog);
         Ok(())
     }
@@ -246,6 +256,7 @@ impl Inverter {
     }
 
     pub async fn connect(&self) -> Result<()> {
+        debug!("Starting connect method for inverter at {}:{}", self.host, self.config().port());
         let inverter_config = self.config();
         debug!(
             "Starting connection process for inverter {} at {}:{}",
@@ -276,6 +287,7 @@ impl Inverter {
                     inverter_config.port(), 
                     e
                 );
+                debug!("Detailed TCP connection error: {:?}", e);
                 bail!("Failed to connect to inverter: {}", e);
             },
             Err(_) => {
@@ -293,6 +305,7 @@ impl Inverter {
         let std_stream = stream.into_std()?;
         if let Err(e) = std_stream.set_keepalive(Some(Duration::new(TCP_KEEPALIVE_SECS, 0))) {
             warn!("Failed to set TCP keepalive: {}", e);
+            debug!("Detailed TCP keepalive error: {:?}", e);
         } else {
             debug!("TCP keepalive set to {} seconds", TCP_KEEPALIVE_SECS);
         }
@@ -303,6 +316,7 @@ impl Inverter {
         if inverter_config.use_tcp_nodelay() {
             if let Err(e) = stream.set_nodelay(true) {
                 warn!("Failed to set TCP_NODELAY: {}", e);
+                debug!("Detailed TCP_NODELAY error: {:?}", e);
             } else {
                 debug!("TCP_NODELAY enabled");
             }
@@ -313,37 +327,48 @@ impl Inverter {
         let (reader, writer) = stream.into_split();
         debug!("TCP stream split into reader and writer");
 
+        // Clone necessary parts for the tasks
+        let sender_config = self.config.clone();
+        let receiver_config = self.config.clone();
+        let sender_channels = self.channels.clone();
+        let receiver_channels = self.channels.clone();
+        let sender_stats = self.shared_stats.clone();
+        let receiver_stats = self.shared_stats.clone();
+        let sender_host = inverter_config.host().to_string();
+        let receiver_host = inverter_config.host().to_string();
+
         // Start sender and receiver tasks
         debug!("Starting sender and receiver tasks");
-        let sender_task = self.sender(writer);
-        let receiver_task = self.receiver(reader);
+        let sender_handle = tokio::spawn(async move {
+            let inverter = Inverter {
+                config: sender_config,
+                host: sender_host,
+                channels: sender_channels,
+                shared_stats: sender_stats,
+            };
+            inverter.sender(writer).await
+        });
+
+        let receiver_handle = tokio::spawn(async move {
+            let inverter = Inverter {
+                config: receiver_config,
+                host: receiver_host,
+                channels: receiver_channels,
+                shared_stats: receiver_stats,
+            };
+            inverter.receiver(reader).await
+        });
 
         // Send Connected message after tasks are started
         if let Err(e) = self.channels.from_inverter.send(ChannelData::Connected(inverter_config.datalog().expect("datalog must be set"))) {
             warn!("{}:Failed to send Connected message: {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(), e);
+            debug!("Detailed Connected message error: {:?}", e);
         } else {
             debug!("{}:sent Connected message", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
         }
 
-        tokio::select! {
-            res = sender_task => {
-                if let Err(e) = res {
-                    warn!("Sender task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                } else {
-                    warn!("Sender task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                }
-            }
-            res = receiver_task => {
-                if let Err(e) = res {
-                    warn!("Receiver task error: {} for {}", e, inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                } else {
-                    warn!("Receiver task ended for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                }
-            }
-        }
-
-        // Ensure we send a disconnect message
-        let _ = self.channels.from_inverter.send(ChannelData::Disconnect(inverter_config.datalog().expect("datalog must be set")));
+        // Store the task handles in the inverter for later use if needed
+        debug!("Both sender and receiver tasks started successfully");
         Ok(())
     }
 

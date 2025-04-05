@@ -353,6 +353,7 @@ async fn start_inverters(inverters: Vec<Inverter>) -> Result<()> {
         
         if let Err(e) = inverter.start().await {
             error!("Failed to start inverter {}: {}", datalog, e);
+            debug!("Detailed error for inverter {}: {:?}", datalog, e);
             bail!("Failed to start inverter {}: {}", datalog, e);
         }
         debug!("Successfully started inverter {}/{} (datalog: {}, host: {}, port: {})", 
