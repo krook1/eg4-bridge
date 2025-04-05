@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+#[allow(dead_code)]
 pub struct SetAcFirstTime {
     channels: Channels,
     inverter: config::Inverter,

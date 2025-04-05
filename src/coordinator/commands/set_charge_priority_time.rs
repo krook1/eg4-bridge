@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+#[allow(dead_code)]
 pub struct SetChargePriorityTime {
     channels: Channels,
     inverter: config::Inverter,

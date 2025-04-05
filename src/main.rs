@@ -1,9 +1,6 @@
 use anyhow::Result;
-use log::{error, info};
-use tokio::signal::ctrl_c;
-use tokio::time::Duration;
+use log::error;
 use std::sync::Arc;
-use env_logger;
 use tokio::sync::broadcast;
 use std::error::Error;
 
