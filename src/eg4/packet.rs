@@ -1175,20 +1175,43 @@ pub enum TcpFunction {
 // }}}
 
 // {{{ DeviceFunction
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoPrimitive, TryFromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive, IntoPrimitive, Serialize)]
 #[repr(u8)]
+/// Modbus function codes used for device communication
 pub enum DeviceFunction {
-    ReadHold = 3,
-    ReadInput = 4,
-    WriteSingle = 6,
-    WriteMulti = 16,
-    // UpdatePrepare = 33
-    // UpdateSendData = 34
-    // UpdateReset = 35
-    // ReadHoldError = 131
-    // ReadInputError = 132
-    // WriteSingleError = 134
-    // WriteMultiError = 144
+    /// Read holding registers (0x03)
+    /// Used to read the contents of holding registers in the device
+    ReadHold = 0x03,
+    /// Read input registers (0x04)
+    /// Used to read the contents of input registers in the device
+    ReadInput = 0x04,
+    /// Write single holding register (0x06)
+    /// Used to write a single value to a holding register
+    WriteSingle = 0x06,
+    /// Write multiple holding registers (0x10)
+    /// Used to write multiple values to holding registers
+    WriteMulti = 0x10,
+    /// Update prepare (0x21)
+    /// Used to prepare for a firmware update
+    UpdatePrepare = 0x21,
+    /// Update send data (0x22)
+    /// Used to send firmware update data
+    UpdateSendData = 0x22,
+    /// Update reset (0x23)
+    /// Used to reset after firmware update
+    UpdateReset = 0x23,
+    /// Read holding registers error (0x83)
+    /// Error response for read holding registers
+    ReadHoldError = 0x83,
+    /// Read input registers error (0x84)
+    /// Error response for read input registers
+    ReadInputError = 0x84,
+    /// Write single holding register error (0x86)
+    /// Error response for write single holding register
+    WriteSingleError = 0x86,
+    /// Write multiple holding registers error (0x90)
+    /// Error response for write multiple holding registers
+    WriteMultiError = 0x90,
 }
 // }}}
 

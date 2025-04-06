@@ -138,7 +138,7 @@ impl TimeSync {
 
         Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set for timesync command"),
-            device_function: DeviceFunction::WriteMulti,
+            device_function: DeviceFunction::WriteMultiHold,
             inverter: self.inverter.serial().expect("serial must be set for timesync command"),
             register: 12,
             values: vec![

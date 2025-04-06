@@ -1,7 +1,6 @@
 pub mod commands;
 
 use crate::prelude::*;
-use crate::coordinator::commands::time_register_ops::Action;
 use crate::eg4::packet::{Register, RegisterBit};
 use crate::command::Command;
 use crate::datalog_writer::DatalogWriter;
@@ -13,6 +12,7 @@ use crate::eg4::{
 use commands::{
     parse_hold,
     parse_input,
+    time_register_ops::{Action, ReadTimeRegister},
 };
 
 use std::sync::{Arc, Mutex};
@@ -144,12 +144,13 @@ impl PacketStats {
 #[derive(Clone)]
 pub struct Coordinator {
     config: Arc<ConfigWrapper>,
-    mqtt: Option<Arc<Mqtt>>,
-    influx: Option<Arc<Influx>>,
-    databases: Vec<Arc<Database>>,
-    datalog_writer: Option<Arc<DatalogWriter>>,
     channels: Channels,
-    pub shared_stats: Arc<Mutex<PacketStats>>,
+    shared_stats: Arc<Mutex<PacketStats>>,
+    datalog_writer: Option<Arc<DatalogWriter>>,
+    influx: Option<Arc<Influx>>,
+    mqtt: Option<Arc<Mqtt>>,
+    databases: Vec<Arc<Database>>,
+    register_cache: Option<Arc<RegisterCache>>,
 }
 
 /// Manages all application components and their lifecycle
@@ -222,31 +223,18 @@ impl Components {
     }
 }
 
-#[allow(dead_code)]
 impl Coordinator {
     pub fn new(config: Arc<ConfigWrapper>, channels: Channels) -> Self {
         let shared_stats = Arc::new(Mutex::new(PacketStats::default()));
-        
-        // Share stats with inverters
-        for inverter_config in config.inverters() {
-            if let Some(inverter) = config.enabled_inverter_with_datalog(inverter_config.datalog().unwrap_or_default()) {
-                let _inverter = eg4::inverter::Inverter::new_with_stats(
-                    (*config).clone(),
-                    &inverter,
-                    channels.clone(),
-                    shared_stats.clone()
-                );
-            }
-        }
-
         Self {
             config,
-            mqtt: None,
-            influx: None,
-            databases: Vec::new(),
-            datalog_writer: None,
             channels,
             shared_stats,
+            datalog_writer: None,
+            influx: None,
+            mqtt: None,
+            databases: Vec::new(),
+            register_cache: None,
         }
     }
 
@@ -267,32 +255,196 @@ impl Coordinator {
         
         // Start with RegisterCache as it's a dependency for other components
         info!("  Creating RegisterCache...");
-        let _register_cache = RegisterCache::new(self.channels.clone());
+        let register_cache = Arc::new(RegisterCache::new(self.channels.clone()));
+        self.register_cache = Some(register_cache.clone());
+        
+        // Spawn the register cache task
+        tokio::spawn(async move {
+            if let Err(e) = register_cache.start().await {
+                error!("Register cache task failed: {}", e);
+            }
+        });
+        
+        // Initialize datalog writer if configured
+        if let Some(path) = self.config.datalog_file() {
+            info!("Initializing datalog writer at {}", path);
+            let writer = DatalogWriter::new(&path)?;
+            self.datalog_writer = Some(Arc::new(writer));
+            info!("Datalog writer initialized successfully");
+        }
         
         // Initialize MQTT client if enabled
-        self.start_mqtt()?;
+        if self.config.mqtt().enabled() {
+            info!("Initializing MQTT");
+            let mqtt = Arc::new(Mqtt::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone()));
+            self.mqtt = Some(mqtt);
+        }
         
         // Initialize InfluxDB client if enabled
-        self.start_influx()?;
+        if self.config.influx().enabled() {
+            info!("Initializing InfluxDB");
+            let influx = Arc::new(Influx::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone()));
+            self.influx = Some(influx);
+        }
         
         // Initialize databases
-        let databases = self.config.databases()
+        self.databases = self.config.databases()
             .iter()
             .filter(|db| db.enabled())
             .map(|db| {
                 info!("Initializing database {}", db.url());
-                Database::new(db.clone(), self.channels.clone(), self.shared_stats.clone())
+                Arc::new(Database::new(db.clone(), self.channels.clone(), self.shared_stats.clone()))
             })
-            .collect::<Vec<_>>();
+            .collect();
         
-        self.start_databases(databases).await?;
-        
-        // Initialize datalog writer if configured
-        self.start_datalog_writer()?;
-
         // Verify subscribers are ready
-        self.verify_subscribers().await?;
+        info!("Verifying subscribers...");
         
+        // Check datalog writer subscriber if configured
+        if let Some(_) = &self.datalog_writer {
+            let mut receiver = self.channels.from_inverter.subscribe();
+            if receiver.is_closed() {
+                error!("Datalog writer channel is closed - this is a fatal error");
+                bail!("Datalog writer channel is closed");
+            }
+            info!("Datalog writer subscriber is ready");
+        } else {
+            info!("Datalog writer not configured, skipping verification");
+        }
+
+        // Check InfluxDB subscriber if enabled
+        if self.config.influx().enabled() {
+            let mut receiver = self.channels.to_influx.subscribe();
+            if receiver.is_closed() {
+                error!("InfluxDB channel is closed - this is a fatal error");
+                bail!("InfluxDB channel is closed");
+            }
+            info!("InfluxDB subscriber is ready");
+        } else {
+            info!("InfluxDB not configured, skipping verification");
+        }
+
+        // Check MQTT subscriber if enabled
+        if self.config.mqtt().enabled() {
+            let mut receiver = self.channels.to_mqtt.subscribe();
+            if receiver.is_closed() {
+                error!("MQTT channel is closed - this is a fatal error");
+                bail!("MQTT channel is closed");
+            }
+            info!("MQTT subscriber is ready");
+        } else {
+            info!("MQTT not configured, skipping verification");
+        }
+
+        // Check database subscribers if configured
+        if !self.databases.is_empty() {
+            let mut receiver = self.channels.to_database.subscribe();
+            if receiver.is_closed() {
+                error!("Database channel is closed - this is a fatal error");
+                bail!("Database channel is closed");
+            }
+            info!("Database subscribers are ready");
+        } else {
+            info!("No databases configured, skipping verification");
+        }
+
+        info!("All required subscribers are ready");
+
+        // Create and start inverters
+        info!("Creating and starting inverters...");
+        let inverters: Vec<_> = self.config
+            .enabled_inverters()
+            .into_iter()
+            .map(|inverter| Inverter::new((*self.config).clone(), &inverter, self.channels.clone()))
+            .collect();
+        
+        // Start each inverter
+        for inverter in inverters {
+            if let Err(e) = inverter.start().await {
+                error!("Failed to start inverter: {}", e);
+                continue;
+            }
+        }
+        info!("All inverters started successfully");
+
+        // Start the main loop to process inverter data
+        let mut from_inverter_rx = self.channels.from_inverter.subscribe();
+        let mut to_coordinator_rx = self.channels.to_coordinator.subscribe();
+
+        info!("Starting main coordinator loop");
+        loop {
+            tokio::select! {
+                // Process data from inverters
+                msg = from_inverter_rx.recv() => {
+                    match msg {
+                        Ok(eg4::inverter::ChannelData::Packet(packet)) => {
+                            if let Err(e) = self.process_packet(packet).await {
+                                error!("Failed to process packet: {}", e);
+                            }
+                        }
+                        Ok(eg4::inverter::ChannelData::Connected(datalog)) => {
+                            if let Err(e) = self.inverter_connected(datalog).await {
+                                error!("Failed to handle inverter connection: {}", e);
+                            }
+                        }
+                        Ok(eg4::inverter::ChannelData::Disconnect(datalog)) => {
+                            info!("Inverter {} disconnected", datalog);
+                        }
+                        Ok(eg4::inverter::ChannelData::Shutdown) => {
+                            info!("Received shutdown signal from inverter");
+                            break;
+                        }
+                        Ok(eg4::inverter::ChannelData::Heartbeat(packet)) => {
+                            debug!("Received heartbeat packet: {:?}", packet);
+                        }
+                        Ok(eg4::inverter::ChannelData::ModbusError(inverter, code, error)) => {
+                            error!("Modbus error from inverter {}: code {}, error: {:?}", 
+                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                code,
+                                error
+                            );
+                        }
+                        Ok(eg4::inverter::ChannelData::SerialMismatch(inverter, expected, actual)) => {
+                            error!("Serial mismatch for inverter {}: expected {}, got {}", 
+                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                                expected,
+                                actual
+                            );
+                        }
+                        Err(e) => {
+                            error!("Error receiving from inverter channel: {}", e);
+                            break;
+                        }
+                    }
+                }
+
+                // Process commands from coordinator
+                msg = to_coordinator_rx.recv() => {
+                    match msg {
+                        Ok(ChannelData::SendPacket(packet)) => {
+                            if let Err(e) = self.channels.to_inverter.send(eg4::inverter::ChannelData::Packet(packet)) {
+                                error!("Failed to send packet to inverter: {}", e);
+                            }
+                        }
+                        Ok(ChannelData::Packet(packet)) => {
+                            if let Err(e) = self.process_packet(packet).await {
+                                error!("Failed to process packet: {}", e);
+                            }
+                        }
+                        Ok(ChannelData::Shutdown) => {
+                            info!("Received shutdown signal");
+                            break;
+                        }
+                        Err(e) => {
+                            error!("Error receiving from coordinator channel: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("Coordinator main loop exiting");
         Ok(())
     }
 
@@ -361,7 +513,7 @@ impl Coordinator {
         Ok(())
     }
 
-    async fn handle_packet(&self, packet: Packet) -> Result<()> {
+    async fn process_packet(&self, packet: Packet) -> Result<()> {
         // Update shared stats for received packets
         if let Ok(mut stats) = self.shared_stats.lock() {
             stats.packets_received += 1;
@@ -430,7 +582,7 @@ impl Coordinator {
         match packet {
             Packet::TranslatedData(td) => {
                 // Skip heartbeat packets for InfluxDB
-                if !matches!(td.device_function, DeviceFunction::WriteSingle | DeviceFunction::WriteMulti) {
+                if !matches!(td.device_function, DeviceFunction::WriteHold | DeviceFunction::WriteMultiHold) {
                     // Send to InfluxDB
                     if let Err(e) = self.send_to_influx(&td).await {
                         error!("Failed to send data to InfluxDB: {}", e);
@@ -719,870 +871,77 @@ impl Coordinator {
         self.read_time_register(inverter, Action::ChargePriority(num)).await
     }
 
-    /// Read forced discharge time settings from the inverter
-    /// This operation is always allowed regardless of read_only mode
-    async fn read_forced_discharge_time(
-        &self,
-        inverter: &config::Inverter,
-        num: u16,
-    ) -> Result<()> {
-        self.read_time_register(inverter, Action::ForcedDischarge(num)).await
-    }
-
-    /// Internal helper to read time register settings
-    /// This operation is always allowed regardless of read_only mode
-    async fn read_time_register(
-        &self,
-        inverter: &config::Inverter,
-        action: commands::time_register_ops::Action,
-    ) -> Result<()> {
-        commands::time_register_ops::ReadTimeRegister::new(
-            self.channels.clone(),
-            inverter.clone(),
-            (*self.config).clone(),
-            action,
-        )
-        .run()
-        .await?;
-        
-        // Add delay between reads if configured
-        if inverter.delay_ms().unwrap_or(0) > 0 {
-            info!("read_time_Register sleeping {} ms", inverter.delay_ms().unwrap_or(0));
-            tokio::time::sleep(std::time::Duration::from_millis(inverter.delay_ms().unwrap_or(0))).await;
-        }
+    async fn inverter_connected(&mut self, datalog: Serial) -> Result<()> {
+        info!("Inverter {} connected", datalog);
         Ok(())
     }
 
-    /// Write a parameter to the inverter
-    /// This operation is blocked by read_only mode
-    async fn write_param<U>(
-        &self,
-        inverter: config::Inverter,
-        register: U,
-        value: u16,
-    ) -> Result<()>
-    where
-        U: Into<u16>,
-    {
-        commands::write_param::WriteParam::new(
-            self.channels.clone(),
-            inverter.clone(),
-            register,
-            value,
-        )
-        .run()
-        .await?;
-
-        Ok(())
-    }
-
-    /// Write time register settings to the inverter
-    /// This operation is blocked by read_only mode
-    async fn set_time_register(
-        &self,
-        inverter: config::Inverter,
-        action: commands::time_register_ops::Action,
-        values: [u8; 4],
-    ) -> Result<()> {
-        commands::time_register_ops::SetTimeRegister::new(
-            self.channels.clone(),
-            inverter.clone(),
-            (*self.config).clone(),
-            action,
-            values,
-        )
-        .run()
-        .await
-    }
-
-    /// Write a holding register to the inverter
-    /// This operation is blocked by read_only mode
-    async fn set_hold<U>(&self, inverter: config::Inverter, register: U, value: u16) -> Result<()>
-    where
-        U: Into<u16>,
-    {
-        commands::set_hold::SetHold::new(self.channels.clone(), inverter.clone(), register, value)
-            .run()
-            .await?;
-
-        Ok(())
-    }
-
-    /// Update a bit in a holding register
-    /// This operation is blocked by read_only mode
-    async fn update_hold<U>(
-        &self,
-        inverter: config::Inverter,
-        register: U,
-        bit: crate::eg4::packet::RegisterBit,
-        enable: bool,
-    ) -> Result<()>
-    where
-        U: Into<u16>,
-    {
-        commands::update_hold::UpdateHold::new(
-            self.channels.clone(),
-            inverter.clone(),
-            register.into(),
-            bit,
-            enable,
-        )
-        .run()
-        .await?;
-
-        Ok(())
-    }
-
-    async fn process_inverter_packet(&self, packet: Packet, inverter: &config::Inverter) -> Result<()> {
-        match &packet {
-            Packet::TranslatedData(td) => {
-                let datalog = td.datalog;
-                // Check for Modbus error response
-                if td.values.len() >= 1 {
-                    let first_byte = td.values[0];
-                    if first_byte & 0x80 != 0 {  // Check if MSB is set (error response)
-                        let error_code = first_byte & 0x7F;  // Remove MSB to get error code
-                        if let Some(error) = crate::eg4::packet::ModbusError::from_code(error_code) {
-                            error!("Modbus error from inverter {}: {} (code: {:#04x})", 
-                                inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), error.description(), error_code);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.modbus_errors += 1;
-                                // Print statistics after significant error
-                                info!("Statistics after Modbus error:");
-                                stats.print_summary();
-                            }
-                            return Ok(());  // Return early as this is an error response
-                        }
-                    }
-                }
-
-                // Log TCP function for debugging
-                trace!("Processing TCP function: {:?}", td.tcp_function());
-
-                // Check if serial matches configured inverter
-                if let Some(inverter_serial) = inverter.serial() {
-                    if td.inverter != inverter_serial {
-                        warn!(
-                            "Serial mismatch detected - updating inverter configuration. Got {}, was {}",
-                            td.inverter,
-                            inverter_serial
-                        );
-                        
-                        // Update inverter configuration with new serial
-                        info!("Updating inverter serial from {} to {}", inverter_serial, td.inverter);
-                        if let Err(e) = self.config.update_inverter_serial(inverter_serial, td.inverter) {
-                            error!("Failed to update inverter serial: {}", e);
-                        }
-
-                        if let Ok(mut stats) = self.shared_stats.lock() {
-                            stats.serial_mismatches += 1;
-                            stats.last_messages.insert(
-                                inverter.datalog().unwrap_or_default(),
-                                format!("Serial number mismatch for inverter {}: expected {}, got {}", 
-                                    inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), 
-                                    inverter.serial().map(|s| s.to_string()).unwrap_or_default(),
-                                    td.inverter)
-                            );
-                        }
-                    }
-                }
-
-                if let Some(datalog) = inverter.datalog() {
-                    if td.datalog != datalog {
-                        warn!(
-                            "Datalog mismatch - packet: {}, inverter: {}",
-                            td.datalog,
-                            datalog
-                        );
-                        info!("Updating inverter datalog from {} to {}", datalog, td.datalog);
-                        if let Err(e) = self.config.update_inverter_datalog(datalog, td.datalog) {
-                            error!("Failed to update datalog: {}", e);
-                        }
-                        info!(
-                            "{}",
-                            format!("Datalog updated - was {}, now {}", datalog, td.datalog)
-                        );
-                    }
-                }
-
-                // Update packet stats
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.packets_received += 1;
-                    let packet_clone = packet.clone();
-                    stats.last_messages.insert(datalog, format!("{:?}", packet_clone));
-                    stats.translated_data_packets_received += 1;
-                }
-
-                // Process the packet based on its type
-                match td.device_function {
-                    DeviceFunction::ReadInput => {
-                        debug!("Processing ReadInput packet");
-                        let register = td.register();
-                        let pairs = td.pairs();
-                        
-                        // Log all register values
-                        debug!("Input Register Values:");
-                        for (reg, value) in &pairs {
-                            // Cache the register value
-                            if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
-                                error!("Failed to cache register {}: {}", reg, e);
-                                if let Ok(mut stats) = self.shared_stats.lock() {
-                                    stats.register_cache_errors += 1;
-                                }
-                            }
-                            
-                            // Parse and log the register value using the new module
-                            let schema = self.config.register_schema();
-                            let result = parse_input::parse_input_register(*reg, (*value).into(), &schema);
-                            debug!("  {}", result);
-                        }
-
-                        // Write to datalog file if enabled
-                        if let Some(writer) = &self.datalog_writer {
-                            info!("Writing input data to datalog file - inverter: {}, datalog: {}, registers: {}", 
-                                td.inverter, td.datalog, pairs.len());
-                            if let Err(e) = writer.write_input_data(td.inverter, td.datalog, &pairs) {
-                                error!("Failed to write to datalog file: {}", e);
-                            }
-                        }
-
-                        // Send to InfluxDB if enabled
-                        if self.config.influx().enabled() {
-                            let mut data = serde_json::json!({
-                                "time": chrono::Utc::now().timestamp(),
-                                "serial": td.inverter.to_string(),
-                                "datalog": td.datalog.to_string(),
-                                "raw_data": {}
-                            });
-
-                            // Add raw register data
-                            for (reg, value) in &pairs {
-                                data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
-                            }
-
-                            if let Err(e) = self.send_to_influx(td).await {
-                                error!("Failed to send data to InfluxDB: {}", e);
-                                if let Ok(mut stats) = self.shared_stats.lock() {
-                                    stats.influx_errors += 1;
-                                }
-                            }
-                        }
-
-                        if let Err(e) = self.publish_input_message(register, pairs, inverter).await {
-                            error!("Failed to publish input message: {}", e);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.mqtt_errors += 1;
-                            }
-                        }
-                    }
-                    DeviceFunction::ReadHold => {
-                        debug!("Processing ReadHold packet");
-                        let register = td.register();
-                        let pairs = td.pairs();
-                        
-                        // Log all register values
-                        debug!("Hold Register Values:");
-                        for (reg, value) in &pairs {
-                            // Cache the register value
-                            if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*reg, *value)) {
-                                error!("Failed to cache register {}: {}", reg, e);
-                                if let Ok(mut stats) = self.shared_stats.lock() {
-                                    stats.register_cache_errors += 1;
-                                }
-                            }
-                            
-                            // Parse and log the register value using the new module
-                            let schema = self.config.register_schema();
-                            let result = parse_hold::parse_hold_register(*reg, (*value).into(), &schema);
-                            debug!("  {}", result);
-                        }
-
-                        // Write to datalog file if enabled
-                        if let Some(writer) = &self.datalog_writer {
-                            info!("Writing hold data to datalog file - inverter: {}, datalog: {}, registers: {}", 
-                                td.inverter, td.datalog, pairs.len());
-                            if let Err(e) = writer.write_hold_data(td.inverter, td.datalog, &pairs) {
-                                error!("Failed to write to datalog file: {}", e);
-                            }
-                        }
-
-                        // Send to InfluxDB if enabled
-                        if self.config.influx().enabled() {
-                            let mut data = serde_json::json!({
-                                "time": chrono::Utc::now().timestamp(),
-                                "serial": td.inverter.to_string(),
-                                "datalog": td.datalog.to_string(),
-                                "raw_data": {}
-                            });
-
-                            // Add raw register data
-                            for (reg, value) in &pairs {
-                                data["raw_data"][reg.to_string()] = serde_json::json!(format!("{:04x}", value));
-                            }
-
-                            if let Err(e) = self.send_to_influx(td).await {
-                                error!("Failed to send data to InfluxDB: {}", e);
-                                if let Ok(mut stats) = self.shared_stats.lock() {
-                                    stats.influx_errors += 1;
-                                }
-                            }
-                        }
-                        
-                        if let Err(e) = self.publish_hold_message(register, pairs, inverter).await {
-                            error!("Failed to publish hold message: {}", e);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.mqtt_errors += 1;
-                            }
-                        }
-                    }
-                    DeviceFunction::WriteSingle => {
-                        debug!("Processing WriteSingle packet");
-                        let register = td.register();
-                        let value = td.value();
-                        if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register, value)) {
-                            error!("Failed to cache register {}: {}", register, e);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.register_cache_errors += 1;
-                            }
-                        }
-                        if let Err(e) = self.publish_write_confirmation(register, value, inverter).await {
-                            error!("Failed to publish write confirmation: {}", e);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.mqtt_errors += 1;
-                            }
-                        }
-                    }
-                    DeviceFunction::WriteMulti => {
-                        debug!("Processing WriteMulti packet");
-                        let pairs = td.pairs();
-                        for (register, value) in &pairs {
-                            if let Err(e) = self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(*register, *value)) {
-                                error!("Failed to cache register {}: {}", register, e);
-                                if let Ok(mut stats) = self.shared_stats.lock() {
-                                    stats.register_cache_errors += 1;
-                                }
-                            }
-                        }
-                        if let Err(e) = self.publish_write_multi_confirmation(pairs, inverter).await {
-                            error!("Failed to publish write multi confirmation: {}", e);
-                            if let Ok(mut stats) = self.shared_stats.lock() {
-                                stats.mqtt_errors += 1;
-                            }
-                        }
-                    }
-                }
-            }
-            Packet::Heartbeat(_) => {
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.heartbeat_packets_received += 1;
-                }
-            }
-            Packet::ReadParam(_) => {
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.read_param_packets_received += 1;
-                }
-            }
-            Packet::WriteParam(_) => {
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.write_param_packets_received += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn inverter_connected(&self, datalog: Serial) -> Result<()> {
-        info!("Received connection notification for inverter {}", datalog);
-        let inverter = match self.config.enabled_inverter_with_datalog(datalog) {
-            Some(inverter) => {
-                info!("Found configured inverter with datalog {}", datalog);
-                inverter
-            },
-            None => {
-                warn!("Unknown inverter datalog connected: {}, will continue processing its data", datalog);
-                return Ok(());
-            }
-        };
-
-        if !inverter.publish_holdings_on_connect() {
-            info!("Skipping register reading for inverter {} as publish_holdings_on_connect is false", datalog);
-            return Ok(());
-        }
-
-        info!("Reading all registers for inverter {}", datalog);
-
-        let block_size = inverter.register_block_size();
-
-        // Read all holding register blocks
-        for start_register in (0..=240).step_by(block_size as usize) {
-            self.read_hold_registers(&inverter, start_register as u16, block_size).await?;
-        }
-
-        // Read all input register blocks
-        for start_register in (0..=200).step_by(block_size as usize) {
-            self.read_input_block(&inverter, start_register as u16, block_size).await?;
-        }
-
-        // Read time registers
-        for num in &[1, 2, 3] {
-            self.read_time_register(
-                &inverter,
-                commands::time_register_ops::Action::AcCharge(*num),
-            ).await?;
-
-            self.read_time_register(
-                &inverter,
-                commands::time_register_ops::Action::ChargePriority(*num),
-            ).await?;
-
-            self.read_time_register(
-                &inverter,
-                commands::time_register_ops::Action::ForcedDischarge(*num),
-            ).await?;
-
-            self.read_time_register(
-                &inverter,
-                commands::time_register_ops::Action::AcFirst(*num),
-            ).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn publish_message(&self, topic: String, payload: String, retain: bool) -> Result<()> {
-        let m = mqtt::Message {
-            topic,
-            payload,
-            retain,
-        };
-        let channel_data = mqtt::ChannelData::Message(m);
-        
-        // Try sending with retries
-        let mut retries = 3;
-        while retries > 0 {
-            match self.channels.to_mqtt.send(channel_data.clone()) {
-                Ok(_) => {
-                    if let Ok(mut stats) = self.shared_stats.lock() {
-                        stats.mqtt_messages_sent += 1;
-                    }
-                    return Ok(());
-                }
-                Err(e) => {
-                    if retries > 1 {
-                        warn!("Failed to send MQTT message, retrying... ({} attempts left): {}", retries - 1, e);
-                        tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
-                    }
-                    retries -= 1;
-                }
-            }
-        }
-
-        if let Ok(mut stats) = self.shared_stats.lock() {
-            stats.mqtt_errors += 1;
-        }
-        bail!("send(to_mqtt) failed after retries - channel closed?");
-    }
-
-    async fn publish_input_message(&self, _register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        for (reg, value) in pairs {
-            let topic = format!("{}/inputs/{}", inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), reg);
-            if let Err(e) = self.publish_message(topic, value.to_string(), false).await {
-                error!("Failed to publish input message: {}", e);
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.mqtt_errors += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_hold_message(&self, _register: u16, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        for (reg, value) in pairs {
-            let topic = format!("{}/hold/{}", inverter.datalog().map(|s| s.to_string()).unwrap_or_default(), reg);
-            if let Err(e) = self.publish_message(topic, value.to_string(), true).await {
-                error!("Failed to publish hold message: {}", e);
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.mqtt_errors += 1;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_write_confirmation(&self, register: u16, value: u16, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        let topic = format!("{}/write/status", inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
-        if let Err(e) = self.publish_message(topic, format!("OK: {} = {}", register, value), false).await {
-            error!("Failed to publish write confirmation: {}", e);
-            if let Ok(mut stats) = self.shared_stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn publish_write_multi_confirmation(&self, pairs: Vec<(u16, u16)>, inverter: &config::Inverter) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        let topic = format!("{}/write_multi/status", inverter.datalog().map(|s| s.to_string()).unwrap_or_default());
-        if let Err(e) = self.publish_message(topic, format!("OK: {:?}", pairs), false).await {
-            error!("Failed to publish write multi confirmation: {}", e);
-            if let Ok(mut stats) = self.shared_stats.lock() {
-                stats.mqtt_errors += 1;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn start_mqtt(&mut self) -> Result<()> {
-        if self.config.mqtt().enabled() {
-            info!("Initializing MQTT");
-            let mqtt = Mqtt::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone());
-            self.mqtt = Some(Arc::new(mqtt));
-        }
-        Ok(())
-    }
-
-    fn start_influx(&mut self) -> Result<()> {
-        if self.config.influx().enabled() {
-            info!("Initializing InfluxDB");
-            let influx = Influx::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone());
-            self.influx = Some(Arc::new(influx));
+    async fn send_to_influx(&self, data: &TranslatedData) -> Result<()> {
+        if let Some(influx) = &self.influx {
+            let json = serde_json::to_value(data)?;
+            self.channels.to_influx.send(influx::ChannelData::InputData(json))?;
         }
         Ok(())
     }
 
     fn cache_register(&self, register: u16, values: Vec<u8>) -> Result<()> {
-        for (i, value) in values.iter().enumerate() {
-            match self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(register + i as u16, *value as u16)) {
-                Ok(_) => {
-                    // Increment stats after successful cache write
-                    if let Ok(mut stats) = self.shared_stats.lock() {
-                        stats.register_cache_writes += 1;
-                        trace!("Incremented register cache writes counter to {}", stats.register_cache_writes);
-                    }
+        // Convert Vec<u8> to Vec<u16>
+        let values_u16: Vec<u16> = values.chunks(2)
+            .map(|chunk| {
+                if chunk.len() == 2 {
+                    ((chunk[0] as u16) << 8) | (chunk[1] as u16)
+                } else {
+                    chunk[0] as u16
                 }
-                Err(e) => {
-                    error!("Failed to cache register {}: {}", register + i as u16, e);
-                    if let Ok(mut stats) = self.shared_stats.lock() {
-                        stats.register_cache_errors += 1;
-                    }
-                    return Err(e.into());
-                }
+            })
+            .collect();
+
+        // Send each value to the register cache
+        for (i, value) in values_u16.into_iter().enumerate() {
+            let reg = register + i as u16;
+            self.channels.to_register_cache.send(register_cache::ChannelData::RegisterData(reg, value))?;
+        }
+        Ok(())
+    }
+
+    async fn send_to_mqtt(&self, data: &TranslatedData) -> Result<()> {
+        if let Some(mqtt) = &self.mqtt {
+            let messages = mqtt::Message::for_input(data.clone(), true)?;
+            for message in messages {
+                self.channels.to_mqtt.send(mqtt::ChannelData::Message(message))?;
             }
         }
         Ok(())
     }
 
-    async fn send_to_influx(&self, td: &TranslatedData) -> Result<()> {
-        if !self.config.influx().enabled() {
-            return Ok(());
-        }
-
-        let mut data = serde_json::json!({
-            "time": chrono::Utc::now().timestamp(),
-            "serial": td.inverter.to_string(),
-            "datalog": td.datalog.to_string(),
-            "raw_data": {}
-        });
-
-        // Add raw register data
-        for (i, value) in td.values.iter().enumerate() {
-            data["raw_data"][(td.register + i as u16).to_string()] = serde_json::json!(format!("{:04x}", value));
-        }
-
-        // Send data to InfluxDB
-        match self.channels.to_influx.send(influx::ChannelData::InputData(data)) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!("Failed to send data to InfluxDB: {}", e);
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.influx_errors += 1;
-                }
-                Err(e.into())
-            }
-        }
+    async fn read_forced_discharge_time(&self, inverter: &config::Inverter, num: u16) -> Result<()> {
+        self.read_time_register(inverter, Action::ForcedDischarge(num)).await
     }
 
-    async fn send_to_mqtt(&self, td: &TranslatedData) -> Result<()> {
-        if !self.config.mqtt().enabled() {
-            return Ok(());
-        }
-
-        // Publish raw values
-        for (i, value) in td.values.iter().enumerate() {
-            let topic = format!("{}/inputs/{}", td.datalog, td.register + i as u16);
-            if let Err(e) = self.publish_message(topic, value.to_string(), false).await {
-                error!("Failed to publish input message: {}", e);
-                if let Ok(mut stats) = self.shared_stats.lock() {
-                    stats.mqtt_errors += 1;
-                }
-                return Err(e);
-            }
-        }
-
-        Ok(())
+    async fn update_hold(&self, inverter: config::Inverter, register: Register, bit: RegisterBit, enable: bool) -> Result<()> {
+        let write_inverter = commands::write_inverter::WriteInverter::new(
+            self.channels.clone(),
+            inverter,
+            (*self.config).clone(),
+        );
+        let value = if enable { 1 } else { 0 };
+        write_inverter.set_hold(register, value).await
     }
 
-    fn increment_packets_sent(&self, packet: &Packet) {
-        if let Ok(mut stats) = self.shared_stats.lock() {
-            stats.packets_sent += 1;
-            trace!("Incremented total packets sent to {}", stats.packets_sent);
-
-            match packet {
-                Packet::TranslatedData(_) => stats.translated_data_packets_sent += 1,
-                Packet::ReadParam(_) => stats.read_param_packets_sent += 1,
-                Packet::WriteParam(_) => stats.write_param_packets_sent += 1,
-                Packet::Heartbeat(_) => stats.heartbeat_packets_sent += 1,
-            }
-        }
+    async fn read_time_register(&self, inverter: &config::Inverter, action: Action) -> Result<()> {
+        ReadTimeRegister::new(
+            self.channels.clone(),
+            inverter.clone(),
+            (*self.config).clone(),
+            action,
+        )
+        .run()
+        .await
     }
 
-    async fn send_to_inverter(&self, packet: Packet) -> Result<()> {
-        // Log the packet type being sent
-        match &packet {
-            Packet::Heartbeat(hb) => {
-                info!("Sending Heartbeat packet to inverter with datalog {}", hb.datalog);
-            }
-            Packet::TranslatedData(td) => {
-                info!("Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
-                    td.device_function, td.register, td.datalog);
-            }
-            Packet::ReadParam(rp) => {
-                info!("Sending ReadParam packet to inverter - register: {}, datalog: {}", 
-                    rp.register, rp.datalog);
-            }
-            Packet::WriteParam(wp) => {
-                info!("Sending WriteParam packet to inverter - register: {}, values: {:?}, datalog: {}", 
-                    wp.register, wp.values, wp.datalog);
-            }
-        }
-
-        // Send packet to inverter
-        if let Err(e) = self.channels.to_inverter.send(eg4::inverter::ChannelData::Packet(packet)) {
-            bail!("Failed to send packet to inverter: {}", e);
-        }
-        Ok(())
-    }
-
-    /// Starts all configured database connections
-    /// 
-    /// This function initializes connections to all enabled databases
-    /// and ensures they are ready to accept data.
-    pub async fn start_databases(&mut self, databases: Vec<Database>) -> Result<()> {
-        info!("Starting database connections...");
-        for (i, database) in databases.iter().enumerate() {
-            trace!("Starting database {}/{}...", i + 1, databases.len());
-            if let Err(e) = database.start().await {
-                error!("Failed to start database: {}", e);
-                bail!("Failed to start database: {}", e);
-            }
-            trace!("Database {}/{} started successfully", i + 1, databases.len());
-        }
-        info!("All databases started successfully");
-        Ok(())
-    }
-
-    /// Starts all configured inverter connections
-    /// 
-    /// This function initializes connections to all enabled inverters
-    /// and begins monitoring their status and data.
-    async fn start_inverters(&self, inverters: Vec<Inverter>) -> Result<()> {
-        let total = inverters.len();
-        info!("Starting {} inverters...", total);
-        for (i, inverter) in inverters.into_iter().enumerate() {
-            let config = inverter.config();
-            let datalog = config.datalog().map(|s| s.to_string()).unwrap_or_default();
-            let host = config.host();
-            let port = config.port();
-            debug!("Starting inverter {}/{} (datalog: {}, host: {}, port: {})", 
-                i + 1, total, datalog, host, port);
-            
-            if let Err(e) = inverter.start().await {
-                error!("Failed to start inverter {}: {}", datalog, e);
-                debug!("Detailed error for inverter {}: {:?}", datalog, e);
-                bail!("Failed to start inverter {}: {}", datalog, e);
-            }
-            debug!("Successfully started inverter {}/{} (datalog: {}, host: {}, port: {})", 
-                i + 1, total, datalog, host, port);
-        }
-        Ok(())
-    }
-
-    /// Handles the application shutdown sequence
-    /// 
-    /// This function coordinates the shutdown of all components and ensures
-    /// that final statistics are collected before the application exits.
-    pub async fn shutdown(
-        &self,
-        _shutdown_rx: tokio::sync::broadcast::Receiver<()>,
-        _config: Arc<ConfigWrapper>,
-        channels: Channels,
-        scheduler: Scheduler,
-        mqtt: Mqtt,
-        influx: Influx,
-        databases: Vec<Database>,
-    ) -> Result<((), Arc<Mutex<PacketStats>>)> {
-        info!("Initiating shutdown sequence");
-        
-        // Create components instance for coordinated shutdown
-        let mut components = Components {
-            coordinator: self.clone(),
-            scheduler: scheduler.clone(),
-            mqtt: Some(mqtt.clone()),
-            influx: Some(influx.clone()),
-            databases: databases.clone(),
-            datalog_writer: None,
-            channels: channels.clone(),
-        };
-
-        // Execute shutdown sequence
-        components.stop().await;
-        info!("Shutdown complete");
-
-        // Collect final statistics after all components are stopped
-        let stats = components.coordinator.shared_stats.clone();
-
-        Ok(((), stats))
-    }
-
-    /// Main application entry point
-    /// 
-    /// This function initializes and starts all components of the application
-    /// in the correct order to ensure proper dependencies are available.
-    pub async fn app(
-        mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
-        config: Arc<ConfigWrapper>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Initialize communication channels
-        info!("Initializing channels...");
+    pub async fn app(shutdown_rx: broadcast::Receiver<()>, config: Arc<ConfigWrapper>) -> Result<()> {
         let channels = Channels::new();
-
-        // Initialize all components in dependency order
-        info!("Initializing components...");
-        
-        // Start with RegisterCache as it's a dependency for other components
-        info!("  Creating RegisterCache...");
-        let _register_cache = RegisterCache::new(channels.clone());
-        
-        // Create Coordinator which manages the overall application flow
-        info!("  Creating Coordinator...");
-        let mut coordinator = Coordinator::new(config.clone(), channels.clone());
-        
-        // Initialize Scheduler for periodic tasks
-        info!("  Creating Scheduler...");
-        let scheduler = Scheduler::new((*config).clone(), channels.clone());
-        
-        // Set up MQTT client for external communication
-        info!("  Creating MQTT client...");
-        let mqtt = Mqtt::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
-        
-        // Initialize InfluxDB client for time-series data
-        info!("  Creating InfluxDB client...");
-        let influx = Influx::new((*config).clone(), channels.clone(), coordinator.shared_stats.clone());
-
-        // Create inverter instances for each configured inverter
-        info!("  Creating Inverters...");
-        let inverters: Vec<_> = config
-            .enabled_inverters()
-            .into_iter()
-            .map(|inverter| Inverter::new((*config).clone(), &inverter, channels.clone()))
-            .collect();
-        info!("    Created {} inverter instances", inverters.len());
-
-        // Initialize database connections
-        info!("  Creating Databases...");
-        let databases: Vec<_> = config
-            .enabled_databases()
-            .into_iter()
-            .map(|database| Database::new(database, channels.clone(), coordinator.shared_stats.clone()))
-            .collect();
-        info!("    Created {} database instances", databases.len());
-
-        // Start all components in the correct order
-        info!("Starting components in sequence...");
-        
-        // Start databases first as they're a core dependency
-        info!("Starting databases...");
-        if let Err(e) = coordinator.start_databases(databases.clone()).await {
-            error!("Failed to start databases: {}", e);
-            let mut components = Components {
-                coordinator: coordinator.clone(),
-                scheduler: scheduler.clone(),
-                mqtt: Some(mqtt.clone()),
-                influx: Some(influx.clone()),
-                databases: databases.clone(),
-                datalog_writer: None,
-                channels: channels.clone(),
-            };
-            components.stop().await;
-            return Err(e.into());
-        }
-        info!("Databases started successfully");
-
-        // Start InfluxDB
-        info!("Starting InfluxDB...");
-        if let Err(e) = influx.start().await {
-            error!("Failed to start InfluxDB: {}", e);
-            return Err(e.into());
-        }
-        info!("InfluxDB started successfully");
-
-        // Start Coordinator
-        info!("Starting Coordinator...");
-        if let Err(e) = coordinator.start().await {
-            error!("Failed to start Coordinator: {}", e);
-            return Err(e.into());
-        }
-        info!("Coordinator started successfully");
-
-        // Start inverters
-        info!("Starting inverters...");
-        if let Err(e) = coordinator.start_inverters(inverters).await {
-            error!("Failed to start inverters: {}", e);
-            return Err(e.into());
-        }
-        info!("Inverters started successfully");
-
-        // Wait for shutdown signal
-        info!("Waiting for shutdown signal...");
-        let _ = shutdown_rx.recv().await;
-
-        // Execute shutdown sequence
-        info!("Shutdown signal received, stopping components...");
-        let mut components = Components {
-            coordinator,
-            scheduler,
-            mqtt: Some(mqtt),
-            influx: Some(influx),
-            databases,
-            datalog_writer: None,
-            channels,
-        };
-        components.stop().await;
-
-        info!("Application shutdown complete");
-        Ok(())
+        let mut coordinator = Self::new(config, channels);
+        coordinator.start().await
     }
 }
-
