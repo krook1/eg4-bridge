@@ -4,17 +4,21 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{info, error};
+use log::{info, error, warn};
+use crate::eg4::packet::Packet;
+use crate::eg4::inverter::ChannelData;
+use crate::channels::Channels;
 
 #[derive(Debug, Clone)]
 pub struct DatalogWriter {
     file: Arc<Mutex<std::fs::File>>,
     path: String,
     values_written: Arc<Mutex<u64>>,
+    channels: Arc<Channels>,
 }
 
 impl DatalogWriter {
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(path: &str, channels: Arc<Channels>) -> Result<Self> {
         info!("Opening datalog file at {}", path);
         
         // Ensure the directory exists
@@ -51,6 +55,7 @@ impl DatalogWriter {
             file: Arc::new(Mutex::new(file)),
             path: path.to_string(),
             values_written: Arc::new(Mutex::new(0)),
+            channels,
         })
     }
 
@@ -116,6 +121,49 @@ impl DatalogWriter {
     pub async fn stop(&self) {
         // Nothing specific to stop for now
     }
+
+    pub async fn start(&self) -> Result<()> {
+        let mut receiver = self.channels.from_inverter.subscribe();
+        
+        loop {
+            match receiver.recv().await {
+                Ok(data) => {
+                    match data {
+                        ChannelData::Packet(packet) => {
+                            match packet {
+                                Packet::TranslatedData(td) => {
+                                    // Convert values to pairs of (register, value)
+                                    let mut pairs = Vec::new();
+                                    for i in (0..td.values.len()).step_by(2) {
+                                        if i + 1 < td.values.len() {
+                                            let value = ((td.values[i] as u16) << 8) | (td.values[i + 1] as u16);
+                                            pairs.push((td.register + (i as u16 / 2), value));
+                                        }
+                                    }
+                                    
+                                    if !pairs.is_empty() {
+                                        self.write_input_data(td.inverter, td.datalog, &pairs)?;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        ChannelData::Shutdown => {
+                            info!("Datalog writer received shutdown signal");
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(_) => {
+                    warn!("Datalog writer channel closed");
+                    break;
+                }
+            }
+        }
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -126,7 +174,7 @@ mod tests {
     #[test]
     fn test_write_hold_data() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
-        let writer = DatalogWriter::new(temp_file.path().to_str().unwrap())?;
+        let writer = DatalogWriter::new(temp_file.path().to_str().unwrap(), Arc::new(Channels::default()))?;
 
         let serial = Serial::from_str("0000000001")?;
         let datalog = Serial::from_str("0000000002")?;
@@ -150,7 +198,7 @@ mod tests {
     #[test]
     fn test_write_input_data() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
-        let writer = DatalogWriter::new(temp_file.path().to_str().unwrap())?;
+        let writer = DatalogWriter::new(temp_file.path().to_str().unwrap(), Arc::new(Channels::default()))?;
 
         let serial = Serial::from_str("0000000001")?;
         let datalog = Serial::from_str("0000000002")?;

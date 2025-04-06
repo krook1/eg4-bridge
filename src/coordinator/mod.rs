@@ -267,9 +267,17 @@ impl Coordinator {
         
         // Initialize datalog writer if configured
         if let Some(path) = self.config.datalog_file() {
-            info!("Initializing datalog writer at {}", path);
-            let writer = DatalogWriter::new(&path)?;
-            self.datalog_writer = Some(Arc::new(writer));
+            info!("Creating datalog writer with path: {}", path);
+            let writer = DatalogWriter::new(&path, Arc::new(self.channels.clone()))?;
+            let writer_arc = Arc::new(writer);
+            self.datalog_writer = Some(writer_arc.clone());
+            
+            // Spawn the datalog writer task
+            tokio::spawn(async move {
+                if let Err(e) = writer_arc.start().await {
+                    error!("Datalog writer task failed: {}", e);
+                }
+            });
             info!("Datalog writer initialized successfully");
         }
         
@@ -505,8 +513,8 @@ impl Coordinator {
 
     fn start_datalog_writer(&mut self) -> Result<()> {
         if let Some(path) = self.config.datalog_file() {
-            info!("Initializing datalog writer at {}", path);
-            let writer = DatalogWriter::new(&path)?;
+            info!("Creating datalog writer with path: {}", path);
+            let writer = DatalogWriter::new(&path, Arc::new(self.channels.clone()))?;
             self.datalog_writer = Some(Arc::new(writer));
             info!("Datalog writer initialized successfully");
         }
