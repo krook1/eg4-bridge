@@ -34,7 +34,7 @@ impl SetHold {
 
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set for set_hold command"),
-            device_function: DeviceFunction::WriteHold,
+            device_function: DeviceFunction::WriteSingle,
             inverter: self.inverter.serial().expect("serial must be set for set_hold command"),
             register: self.register,
             values: self.value.to_le_bytes().to_vec(),

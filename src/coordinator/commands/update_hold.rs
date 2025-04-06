@@ -58,7 +58,7 @@ impl UpdateHold {
         // Now write the new value
         let write_packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set"),
-            device_function: DeviceFunction::WriteHold,
+            device_function: DeviceFunction::WriteSingle,
             inverter: self.inverter.serial().expect("serial must be set"),
             register: self.register,
             values: new_value.to_le_bytes().to_vec(),

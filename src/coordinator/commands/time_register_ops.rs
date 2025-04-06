@@ -179,7 +179,7 @@ impl SetTimeRegister {
 
         let packet = Packet::TranslatedData(TranslatedData {
             datalog: self.inverter.datalog().expect("datalog must be set for time_register_ops command"),
-            device_function: DeviceFunction::WriteHold,
+            device_function: DeviceFunction::WriteSingle,
             inverter: self.inverter.serial().expect("serial must be set for time_register_ops command"),
             values: values.to_vec(),
             register,

@@ -1555,7 +1555,7 @@ impl PacketCommon for Heartbeat {
 //
 /////////////
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug, Serialize)]
 pub struct TranslatedData {
     pub datalog: Serial,
     pub device_function: DeviceFunction, // ReadHold or ReadInput etc..
@@ -1851,14 +1851,14 @@ impl TranslatedData {
         protocol: u16,
         device_function: DeviceFunction,
     ) -> bool {
-        use DeviceFunction::*;
-
         let p1 = protocol == 1;
         let psi = source == PacketSource::Inverter;
         match device_function {
-            ReadHold | ReadInput => !p1 && psi,
-            WriteSingle => false,
-            WriteMulti => !p1 && !psi,
+            DeviceFunction::ReadHold | DeviceFunction::ReadInput => !p1 && psi,
+            DeviceFunction::WriteSingle => false,
+            DeviceFunction::WriteMulti => !p1 && !psi,
+            DeviceFunction::UpdatePrepare | DeviceFunction::UpdateSendData | DeviceFunction::UpdateReset => false,
+            DeviceFunction::ReadHoldError | DeviceFunction::ReadInputError | DeviceFunction::WriteSingleError | DeviceFunction::WriteMultiError => false,
         }
     }
 

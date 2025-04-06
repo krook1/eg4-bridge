@@ -582,7 +582,7 @@ impl Coordinator {
         match packet {
             Packet::TranslatedData(td) => {
                 // Skip heartbeat packets for InfluxDB
-                if !matches!(td.device_function, DeviceFunction::WriteHold | DeviceFunction::WriteMultiHold) {
+                if !matches!(td.device_function, DeviceFunction::WriteSingle | DeviceFunction::WriteMulti) {
                     // Send to InfluxDB
                     if let Err(e) = self.send_to_influx(&td).await {
                         error!("Failed to send data to InfluxDB: {}", e);
