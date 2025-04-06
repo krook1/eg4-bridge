@@ -1,8 +1,16 @@
 mod common;
 use common::*;
-use lxp_bridge::prelude::*;
-use lxp_bridge::lxp;
-use lxp_bridge::lxp::packet::ReadInputs;
+use eg4_bridge::prelude::*;
+use eg4_bridge::eg4;
+use eg4_bridge::eg4::packet::ReadInputs as PacketReadInputs;
+use eg4_bridge::eg4::inverter::Serial;
+use std::str::FromStr;
+use eg4_bridge::eg4::packet::DeviceFunction;
+use eg4_bridge::eg4::packet::Packet;
+use eg4_bridge::eg4::packet::TranslatedData;
+use eg4_bridge::eg4::inverter::ChannelData;
+use eg4_bridge::coordinator::commands::read_inputs::ReadInputs;
+use eg4_bridge::prelude::Channels;
 
 #[test]
 fn read_inputs_default() {

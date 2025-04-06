@@ -1,20 +1,200 @@
 #![allow(dead_code)]
 
-use lxp_bridge::prelude::*;
-use lxp_bridge::{config, lxp, influx, database};
+use eg4_bridge::prelude::*;
+use eg4_bridge::{config, eg4, influx, database};
 use std::str::FromStr;
 use tokio::sync::broadcast::error::TryRecvError;
 use mockito;
 use serde_json::json;
+use eg4_bridge::eg4::inverter::Serial;
+use eg4_bridge::unixtime::UnixTime;
+use eg4_bridge::prelude::Config;
+use eg4_bridge::prelude::ConfigWrapper;
 
 pub struct Factory();
 impl Factory {
-    pub fn example_config() -> config::Config {
+    pub fn config() -> Config {
         Config::new("config.yaml.example".to_owned()).unwrap()
     }
 
-    pub fn example_config_wrapped() -> config::ConfigWrapper {
+    pub fn config_wrapper() -> ConfigWrapper {
         ConfigWrapper::new("config.yaml.example".to_owned()).unwrap()
+    }
+
+    pub fn translated_data() -> eg4::packet::TranslatedData {
+        eg4::packet::TranslatedData {
+            datalog: Serial::from_str("2222222222").unwrap(),
+            serial: Serial::from_str("5555555555").unwrap(),
+            device_function: eg4::packet::DeviceFunction::ReadInput,
+            register: 0,
+            values: vec![0, 0],
+        }
+    }
+
+    pub fn packet() -> eg4::packet::Packet {
+        eg4::packet::Packet::TranslatedData(Factory::translated_data())
+    }
+
+    pub fn channel_data() -> eg4::inverter::ChannelData {
+        eg4::inverter::ChannelData::Packet(Factory::packet())
+    }
+
+    pub fn influx_data() -> influx::ChannelData {
+        influx::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": 0,
+            "value": 0,
+        }))
+    }
+
+    pub fn database_data() -> database::ChannelData {
+        database::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": 0,
+            "value": 0,
+        }))
+    }
+
+    pub fn mqtt_data() -> mqtt::ChannelData {
+        mqtt::ChannelData::Message(mqtt::Message {
+            topic: "test/topic".to_string(),
+            retain: false,
+            payload: "test payload".to_string(),
+        })
+    }
+
+    pub fn translated_data_with_values(values: Vec<u8>) -> eg4::packet::TranslatedData {
+        eg4::packet::TranslatedData {
+            datalog: Serial::from_str("2222222222").unwrap(),
+            serial: Serial::from_str("5555555555").unwrap(),
+            device_function: eg4::packet::DeviceFunction::ReadInput,
+            register: 0,
+            values,
+        }
+    }
+
+    pub fn packet_with_values(values: Vec<u8>) -> eg4::packet::Packet {
+        eg4::packet::Packet::TranslatedData(Factory::translated_data_with_values(values))
+    }
+
+    pub fn channel_data_with_values(values: Vec<u8>) -> eg4::inverter::ChannelData {
+        eg4::inverter::ChannelData::Packet(Factory::packet_with_values(values))
+    }
+
+    pub fn influx_data_with_values(values: Vec<u8>) -> influx::ChannelData {
+        influx::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": 0,
+            "value": values,
+        }))
+    }
+
+    pub fn database_data_with_values(values: Vec<u8>) -> database::ChannelData {
+        database::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": 0,
+            "value": values,
+        }))
+    }
+
+    pub fn mqtt_data_with_values(values: Vec<u8>) -> mqtt::ChannelData {
+        mqtt::ChannelData::Message(mqtt::Message {
+            topic: "test/topic".to_string(),
+            retain: false,
+            payload: serde_json::to_string(&values).unwrap(),
+        })
+    }
+
+    pub fn translated_data_with_register(register: u16) -> eg4::packet::TranslatedData {
+        eg4::packet::TranslatedData {
+            datalog: Serial::from_str("2222222222").unwrap(),
+            serial: Serial::from_str("5555555555").unwrap(),
+            device_function: eg4::packet::DeviceFunction::ReadInput,
+            register,
+            values: vec![0, 0],
+        }
+    }
+
+    pub fn packet_with_register(register: u16) -> eg4::packet::Packet {
+        eg4::packet::Packet::TranslatedData(Factory::translated_data_with_register(register))
+    }
+
+    pub fn channel_data_with_register(register: u16) -> eg4::inverter::ChannelData {
+        eg4::inverter::ChannelData::Packet(Factory::packet_with_register(register))
+    }
+
+    pub fn influx_data_with_register(register: u16) -> influx::ChannelData {
+        influx::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": register,
+            "value": 0,
+        }))
+    }
+
+    pub fn database_data_with_register(register: u16) -> database::ChannelData {
+        database::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": Serial::from_str("1234567890").unwrap(),
+            "register": register,
+            "value": 0,
+        }))
+    }
+
+    pub fn mqtt_data_with_register(register: u16) -> mqtt::ChannelData {
+        mqtt::ChannelData::Message(mqtt::Message {
+            topic: format!("test/topic/{}", register),
+            retain: false,
+            payload: "0".to_string(),
+        })
+    }
+
+    pub fn translated_data_with_datalog(datalog: Serial) -> eg4::packet::TranslatedData {
+        eg4::packet::TranslatedData {
+            datalog,
+            serial: Serial::from_str("5555555555").unwrap(),
+            device_function: eg4::packet::DeviceFunction::ReadInput,
+            register: 0,
+            values: vec![0, 0],
+        }
+    }
+
+    pub fn packet_with_datalog(datalog: Serial) -> eg4::packet::Packet {
+        eg4::packet::Packet::TranslatedData(Factory::translated_data_with_datalog(datalog))
+    }
+
+    pub fn channel_data_with_datalog(datalog: Serial) -> eg4::inverter::ChannelData {
+        eg4::inverter::ChannelData::Packet(Factory::packet_with_datalog(datalog))
+    }
+
+    pub fn influx_data_with_datalog(datalog: Serial) -> influx::ChannelData {
+        influx::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": datalog,
+            "register": 0,
+            "value": 0,
+        }))
+    }
+
+    pub fn database_data_with_datalog(datalog: Serial) -> database::ChannelData {
+        database::ChannelData::InputData(serde_json::json!({
+            "time": UnixTime::now(),
+            "datalog": datalog,
+            "register": 0,
+            "value": 0,
+        }))
+    }
+
+    pub fn mqtt_data_with_datalog(datalog: Serial) -> mqtt::ChannelData {
+        mqtt::ChannelData::Message(mqtt::Message {
+            topic: format!("test/topic/{}", datalog),
+            retain: false,
+            payload: "0".to_string(),
+        })
     }
 
     pub fn inverter() -> config::Inverter {

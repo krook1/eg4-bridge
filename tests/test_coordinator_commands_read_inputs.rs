@@ -1,11 +1,12 @@
 mod common;
 use common::*;
-use lxp_bridge::prelude::*;
-use lxp_bridge::{lxp, mqtt};
-use lxp_bridge::lxp::packet::{DeviceFunction, Packet, TranslatedData};
-use lxp_bridge::lxp::inverter::Serial;
-use lxp_bridge::coordinator::commands::read_inputs::ReadInputs;
-use lxp_bridge::lxp::inverter::ChannelData;
+use eg4_bridge::prelude::*;
+use eg4_bridge::eg4;
+use eg4_bridge::eg4::packet::{DeviceFunction, Packet, TranslatedData};
+use eg4_bridge::eg4::inverter::Serial;
+use eg4_bridge::coordinator::commands::read_inputs::ReadInputs;
+use eg4_bridge::eg4::inverter::ChannelData;
+use eg4_bridge::prelude::Channels;
 
 #[tokio::test]
 async fn happy_path() {
@@ -24,9 +25,9 @@ async fn happy_path() {
         count,
     );
 
-    let reply = Packet::TranslatedData(lxp::packet::TranslatedData {
+    let reply = Packet::TranslatedData(eg4::packet::TranslatedData {
         datalog: inverter.datalog(),
-        device_function: lxp::packet::DeviceFunction::ReadInput,
+        device_function: eg4::packet::DeviceFunction::ReadInput,
         inverter: inverter.serial(),
         register: 0,
         values: vec![0, 0],
@@ -42,7 +43,7 @@ async fn happy_path() {
         channels.to_inverter.subscribe().recv().await?;
         channels
             .from_inverter
-            .send(lxp::inverter::ChannelData::Packet(reply.clone()))?;
+            .send(eg4::inverter::ChannelData::Packet(reply.clone()))?;
         Ok::<(), anyhow::Error>(())
     };
 

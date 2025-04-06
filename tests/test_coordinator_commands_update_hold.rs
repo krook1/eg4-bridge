@@ -1,11 +1,12 @@
 mod common;
 use common::*;
-use lxp_bridge::prelude::*;
-use lxp_bridge::lxp;
-use lxp_bridge::lxp::packet::{Packet, TranslatedData};
-use lxp_bridge::lxp::inverter::Serial;
-use lxp_bridge::coordinator::commands::update_hold::UpdateHold;
-use lxp_bridge::lxp::inverter::ChannelData;
+use eg4_bridge::prelude::*;
+use eg4_bridge::eg4;
+use eg4_bridge::eg4::packet::{Packet, TranslatedData};
+use eg4_bridge::eg4::inverter::Serial;
+use eg4_bridge::coordinator::commands::update_hold::UpdateHold;
+use eg4_bridge::eg4::inverter::ChannelData;
+use eg4_bridge::prelude::Channels;
 
 #[tokio::test]
 async fn happy_path() {
@@ -14,8 +15,8 @@ async fn happy_path() {
     let inverter = Factory::inverter();
     let channels = Channels::new();
 
-    let register = lxp::packet::Register::Register21 as u16;
-    let bit = lxp::packet::RegisterBit::AcChargeEnable;
+    let register = eg4::packet::Register::Register21 as u16;
+    let bit = eg4::packet::RegisterBit::AcChargeEnable;
     let enable = true;
 
     let subject = coordinator::commands::update_hold::UpdateHold::new(
@@ -30,9 +31,9 @@ async fn happy_path() {
         let result = subject.run().await;
         assert_eq!(
             result?,
-            Packet::TranslatedData(lxp::packet::TranslatedData {
+            Packet::TranslatedData(eg4::packet::TranslatedData {
                 datalog: inverter.datalog(),
-                device_function: lxp::packet::DeviceFunction::WriteSingle,
+                device_function: eg4::packet::DeviceFunction::WriteSingle,
                 inverter: inverter.serial(),
                 register: 21,
                 values: vec![130, 0],
@@ -48,9 +49,9 @@ async fn happy_path() {
         // wait for packet requesting current values
         assert_eq!(
             unwrap_inverter_channeldata_packet(to_inverter.recv().await?),
-            Packet::TranslatedData(lxp::packet::TranslatedData {
+            Packet::TranslatedData(eg4::packet::TranslatedData {
                 datalog: inverter.datalog(),
-                device_function: lxp::packet::DeviceFunction::ReadHold,
+                device_function: eg4::packet::DeviceFunction::ReadHold,
                 inverter: inverter.serial(),
                 register: 21,
                 values: vec![1, 0]
@@ -58,23 +59,23 @@ async fn happy_path() {
         );
 
         // send reply with current values
-        let reply = Packet::TranslatedData(lxp::packet::TranslatedData {
+        let reply = Packet::TranslatedData(eg4::packet::TranslatedData {
             datalog: inverter.datalog(),
-            device_function: lxp::packet::DeviceFunction::ReadHold,
+            device_function: eg4::packet::DeviceFunction::ReadHold,
             inverter: inverter.serial(),
             register: 21,
             values: vec![2, 0],
         });
         channels
             .from_inverter
-            .send(lxp::inverter::ChannelData::Packet(reply))?;
+            .send(eg4::inverter::ChannelData::Packet(reply))?;
 
         // wait for packet setting new value
         assert_eq!(
             unwrap_inverter_channeldata_packet(to_inverter.recv().await?),
-            Packet::TranslatedData(lxp::packet::TranslatedData {
+            Packet::TranslatedData(eg4::packet::TranslatedData {
                 datalog: inverter.datalog(),
-                device_function: lxp::packet::DeviceFunction::WriteSingle,
+                device_function: eg4::packet::DeviceFunction::WriteSingle,
                 inverter: inverter.serial(),
                 register: 21,
                 values: vec![130, 0] // 128 + 2
@@ -82,16 +83,16 @@ async fn happy_path() {
         );
 
         // send reply with new value
-        let reply = Packet::TranslatedData(lxp::packet::TranslatedData {
+        let reply = Packet::TranslatedData(eg4::packet::TranslatedData {
             datalog: inverter.datalog(),
-            device_function: lxp::packet::DeviceFunction::WriteSingle,
+            device_function: eg4::packet::DeviceFunction::WriteSingle,
             inverter: inverter.serial(),
             register: 21,
             values: vec![130, 0],
         });
         channels
             .from_inverter
-            .send(lxp::inverter::ChannelData::Packet(reply))?;
+            .send(eg4::inverter::ChannelData::Packet(reply))?;
 
         Ok::<(), anyhow::Error>(())
     };
@@ -106,8 +107,8 @@ async fn no_reply() {
     let inverter = Factory::inverter();
     let channels = Channels::new();
 
-    let register = lxp::packet::Register::Register21 as u16;
-    let bit = lxp::packet::RegisterBit::AcChargeEnable;
+    let register = eg4::packet::Register::Register21 as u16;
+    let bit = eg4::packet::RegisterBit::AcChargeEnable;
     let enable = true;
 
     let subject = coordinator::commands::update_hold::UpdateHold::new(
@@ -131,9 +132,9 @@ async fn no_reply() {
         // wait for packet requesting current values
         assert_eq!(
             unwrap_inverter_channeldata_packet(channels.to_inverter.subscribe().recv().await?),
-            Packet::TranslatedData(lxp::packet::TranslatedData {
+            Packet::TranslatedData(eg4::packet::TranslatedData {
                 datalog: inverter.datalog(),
-                device_function: lxp::packet::DeviceFunction::ReadHold,
+                device_function: eg4::packet::DeviceFunction::ReadHold,
                 inverter: inverter.serial(),
                 register: 21,
                 values: vec![1, 0]
