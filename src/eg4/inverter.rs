@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam};
+use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam, Heartbeat};
 use crate::eg4::packet_decoder::PacketDecoder;
 
 use {
@@ -610,6 +610,22 @@ impl Inverter {
             Ok(_) => {
                 debug!("Successfully forwarded packet from inverter {} to coordinator", 
                     inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                
+                // Send heartbeat in response to receiving a packet
+                if inverter_config.heartbeats() {
+                    let datalog = match &packet {
+                        Packet::TranslatedData(td) => td.datalog,
+                        Packet::ReadParam(rp) => rp.datalog,
+                        Packet::WriteParam(wp) => wp.datalog,
+                        Packet::Heartbeat(hb) => hb.datalog,
+                    };
+                    
+                    let heartbeat = Packet::Heartbeat(Heartbeat { datalog });
+                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(heartbeat)) {
+                        warn!("Failed to send heartbeat response: {}", e);
+                    }
+                }
+                
                 Ok(())
             }
             Err(e) => {
