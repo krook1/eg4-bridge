@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam, Heartbeat};
+use crate::eg4::packet::{Packet, TcpFrameFactory, WriteParam, ReadParam};
 use crate::eg4::packet_decoder::PacketDecoder;
 
 use {
@@ -356,7 +356,7 @@ impl Inverter {
                 channels: receiver_channels,
                 shared_stats: receiver_stats,
             };
-            inverter.receiver(reader).await
+            inverter.inverter_periodic_reader(reader).await
         });
 
         // Send Connected message after tasks are started
@@ -461,8 +461,7 @@ impl Inverter {
         Ok(())
     }
 
-    // inverter -> coordinator
-    async fn receiver(&self, mut socket: tokio::net::tcp::OwnedReadHalf) -> Result<()> {
+    async fn inverter_periodic_reader(&self, mut socket: tokio::net::tcp::OwnedReadHalf) -> Result<()> {
         use std::time::Duration;
         use tokio::time::timeout;
         use {bytes::BytesMut, tokio_util::codec::Decoder};
@@ -533,18 +532,18 @@ impl Inverter {
                     while let Some(packet) = decoder.decode(&mut buf)? {
                         let packet_clone = packet.clone();
                         info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                        
+
                         // Handle configuration updates asynchronously
                         let config_updates = async {
                             let mut updates = Vec::new();
-                            
+
                             // Check datalog serial
                             if let Err(e) = self.compare_datalog(&packet) {
                                 if let Some(new_datalog) = self.extract_datalog_serial(&packet) {
                                     updates.push(("datalog", new_datalog));
                                 }
                             }
-                            
+
                             // Check inverter serial for TranslatedData packets
                             if let Packet::TranslatedData(_) = packet {
                                 if let Err(e) = self.compare_inverter(&packet) {
@@ -553,7 +552,7 @@ impl Inverter {
                                     }
                                 }
                             }
-                            
+
                             updates
                         };
 
@@ -594,6 +593,28 @@ impl Inverter {
                             }
                         }
                     }
+
+                    // Add a delay of 15 seconds after processing all packets
+                    tokio::time::sleep(Duration::from_secs(15)).await;
+
+                    // Repeat the read requests
+                    let read_input_packet = Packet::ReadParam(ReadParam {
+                        datalog: inverter_config.datalog().expect("datalog must be set"),
+                        register: 0x0004, // Assuming 0x0004 is the register for ReadInput
+                        values: vec![],
+                    });
+                    let read_hold_packet = Packet::ReadParam(ReadParam {
+                        datalog: inverter_config.datalog().expect("datalog must be set"),
+                        register: 0x0003, // Assuming 0x0003 is the register for ReadHold
+                        values: vec![],
+                    });
+
+                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(read_input_packet)) {
+                        warn!("Failed to send ReadInput request: {}", e);
+                    }
+                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(read_hold_packet)) {
+                        warn!("Failed to send ReadHold request: {}", e);
+                    }
                 }
             }
         }
@@ -610,22 +631,6 @@ impl Inverter {
             Ok(_) => {
                 debug!("Successfully forwarded packet from inverter {} to coordinator", 
                     inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
-                
-                // Send heartbeat in response to receiving a packet
-                if inverter_config.heartbeats() {
-                    let datalog = match &packet {
-                        Packet::TranslatedData(td) => td.datalog,
-                        Packet::ReadParam(rp) => rp.datalog,
-                        Packet::WriteParam(wp) => wp.datalog,
-                        Packet::Heartbeat(hb) => hb.datalog,
-                    };
-                    
-                    let heartbeat = Packet::Heartbeat(Heartbeat { datalog });
-                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(heartbeat)) {
-                        warn!("Failed to send heartbeat response: {}", e);
-                    }
-                }
-                
                 Ok(())
             }
             Err(e) => {
