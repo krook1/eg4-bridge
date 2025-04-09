@@ -590,9 +590,8 @@ impl Inverter {
 
         loop {
             // Check if we've exceeded the configured timeout
-            let timeout = config.lock().unwrap().inverter_timeout;
             let time_since_received = self.message_timestamps.time_since_received();
-            if time_since_received >= timeout {
+            if time_since_received >= config.inverter_timeout() {
                 warn!("No data received from inverter {} for {} seconds, closing connection", 
                     inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
                     time_since_received);

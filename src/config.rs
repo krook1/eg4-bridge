@@ -318,6 +318,10 @@ impl ConfigWrapper {
         self.0.lock().unwrap().register_read_interval.into()
     }
 
+    pub fn inverter_timeout(&self) -> u64 {
+        self.0.lock().unwrap().inverter_timeout
+    }
+
     pub fn inverters(&self) -> Vec<Inverter> {
         self.0.lock().unwrap().inverters.clone()
     }
