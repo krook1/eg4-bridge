@@ -57,6 +57,24 @@ impl Influx {
             Client::new(url, credentials)?
         };
 
+        // Test the connection by writing a test point
+        info!("Testing InfluxDB connection...");
+        let test_point = LineBuilder::new("connection_test")
+            .insert_tag("test", "true")
+            .insert_field("value", 1i64)
+            .set_timestamp(chrono::Utc::now())
+            .build();
+
+        match client.send(&self.database(), &[test_point]).await {
+            Ok(_) => {
+                info!("Successfully connected to InfluxDB");
+            }
+            Err(e) => {
+                error!("Failed to connect to InfluxDB: {}", e);
+                return Err(anyhow!("Failed to connect to InfluxDB: {}", e));
+            }
+        }
+
         // Spawn the sender task instead of awaiting it
         let self_clone = self.clone();
         tokio::spawn(async move {
@@ -87,6 +105,7 @@ impl Influx {
                     break;
                 }
                 Ok(InputData(data)) | Ok(HoldData(data)) => {
+                    info!("Received data for InfluxDB: {:?}", data);
                     let mut points = Vec::new();
                     
                     // Extract common fields
@@ -99,6 +118,8 @@ impl Influx {
                     let timestamp = data.get("time")
                         .and_then(|v| v.as_i64())
                         .ok_or_else(|| anyhow!("Missing time in data"))?;
+
+                    info!("Processing data for serial={}, datalog={}, timestamp={}", serial, datalog, timestamp);
 
                     // Get raw register data
                     let raw_data = data.get("raw_data")
@@ -113,6 +134,8 @@ impl Influx {
                         }
                     }
 
+                    info!("Converted raw data to register data: {:?}", register_data);
+
                     // Decode register values if we have a register parser
                     let decoded_values = if let Some(parser) = &self.register_parser {
                         parser.decode_registers(&register_data, self.config.show_unknown(), datalog)
@@ -122,6 +145,8 @@ impl Influx {
                             .map(|(k, v)| (k.clone(), u16::from_str_radix(v, 16).unwrap_or(0) as f64))
                             .collect()
                     };
+
+                    info!("Decoded values: {:?}", decoded_values);
 
                     // Create points for each decoded value
                     for (name, value) in decoded_values {
@@ -139,7 +164,7 @@ impl Influx {
                             MEASUREMENT, serial, datalog, name, value, timestamp);
                     }
 
-                    trace!("Sending to InfluxDB: {:?}", points);
+                    info!("Prepared {} points for InfluxDB", points.len());
 
                     let mut retry_count = 0;
                     while retry_count < 3 {
@@ -169,13 +194,17 @@ impl Influx {
                     }
                 }
                 Err(e) => {
-                    error!("Error receiving from InfluxDB channel: {}", e);
+                    if let broadcast::error::RecvError::Closed = e {
+                        info!("InfluxDB channel closed, shutting down sender task");
+                        break;
+                    } else {
+                        error!("Error receiving from InfluxDB channel: {}", e);
+                    }
                 }
             }
         }
 
         info!("InfluxDB sender loop exiting");
-
         Ok(())
     }
 

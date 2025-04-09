@@ -292,7 +292,18 @@ impl Coordinator {
         if self.config.influx().enabled() {
             info!("Initializing InfluxDB");
             let influx = Arc::new(Influx::new((*self.config).clone(), self.channels.clone(), self.shared_stats.clone()));
-            self.influx = Some(influx);
+            
+            // Start the InfluxDB client and wait for it to initialize
+            match influx.start().await {
+                Ok(_) => {
+                    info!("InfluxDB client started successfully");
+                    self.influx = Some(influx.clone());
+                }
+                Err(e) => {
+                    error!("Failed to start InfluxDB client: {}", e);
+                    return Err(anyhow!("Failed to start InfluxDB client: {}", e));
+                }
+            }
         }
         
         // Initialize databases
@@ -885,11 +896,33 @@ impl Coordinator {
     }
 
     async fn send_to_influx(&self, data: &TranslatedData) -> Result<()> {
-        if let Some(influx) = &self.influx {
-            let json = serde_json::to_value(data)?;
-            self.channels.to_influx.send(influx::ChannelData::InputData(json))?;
+        if self.influx.is_none() {
+            debug!("InfluxDB client not initialized, skipping send");
+            return Ok(());
         }
-        Ok(())
+
+        info!("Preparing to send data to InfluxDB: {:?}", data);
+        
+        // Convert to JSON and add serial number and timestamp
+        let mut json = serde_json::to_value(data)?;
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("serial".to_string(), serde_json::Value::String(data.inverter.to_string()));
+            // Add current timestamp in seconds since epoch
+            obj.insert("time".to_string(), serde_json::Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())));
+            info!("Added serial number to data: {}", data.inverter);
+        }
+
+        // Send to InfluxDB channel
+        match self.channels.to_influx.send(crate::influx::ChannelData::InputData(json)) {
+            Ok(_) => {
+                info!("Successfully sent data to InfluxDB channel");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to send data to InfluxDB channel: {}", e);
+                Err(anyhow!("Failed to send data to InfluxDB channel: {}", e))
+            }
+        }
     }
 
     fn cache_register(&self, register: u16, values: Vec<u8>) -> Result<()> {
