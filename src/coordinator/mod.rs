@@ -909,7 +909,16 @@ impl Coordinator {
             obj.insert("serial".to_string(), serde_json::Value::String(data.inverter.to_string()));
             // Add current timestamp in seconds since epoch
             obj.insert("time".to_string(), serde_json::Value::Number(serde_json::Number::from(chrono::Utc::now().timestamp())));
-            info!("Added serial number to data: {}", data.inverter);
+            
+            // Add raw_data field with register values
+            let mut raw_data = serde_json::Map::new();
+            for (i, value) in data.values.iter().enumerate() {
+                let reg = data.register + i as u16;
+                raw_data.insert(reg.to_string(), serde_json::Value::String(format!("{:04x}", value)));
+            }
+            obj.insert("raw_data".to_string(), serde_json::Value::Object(raw_data));
+            
+            info!("Added serial number and raw data to InfluxDB data: {}", data.inverter);
         }
 
         // Send to InfluxDB channel
