@@ -61,6 +61,10 @@ pub struct Config {
     /// Whether to show unknown register values in output
     #[serde(default = "Config::default_show_unknown")]
     pub show_unknown: bool,
+
+    /// Timeout in seconds between sending read requests to inverters (default: 300)
+    #[serde(default = "Config::default_inverter_timeout")]
+    pub inverter_timeout: u64,
 }
 
 /// Configuration for a single EG4 inverter
@@ -643,6 +647,10 @@ impl Config {
 
     fn default_register_read_interval() -> u64 {
         60
+    }
+
+    fn default_inverter_timeout() -> u64 {
+        300
     }
 }
 

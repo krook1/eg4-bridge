@@ -557,6 +557,7 @@ impl Inverter {
         let mut decoder = PacketDecoder::new();
         let inverter_config = self.config();
         let mut to_inverter_rx = self.channels.to_inverter.subscribe();
+        let config = self.config.clone();
 
         // Start a separate task for sending ReadParam requests
         let channels_clone = self.channels.clone();
@@ -588,6 +589,16 @@ impl Inverter {
         });
 
         loop {
+            // Check if we've exceeded the configured timeout
+            let timeout = config.lock().unwrap().inverter_timeout;
+            let time_since_received = self.message_timestamps.time_since_received();
+            if time_since_received >= timeout {
+                warn!("No data received from inverter {} for {} seconds, closing connection", 
+                    inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                    time_since_received);
+                break;
+            }
+
             // Check buffer capacity and prevent potential memory issues
             if buf.len() >= MAX_BUFFER_SIZE {
                 bail!("Buffer overflow: received data exceeds maximum size of {} bytes", MAX_BUFFER_SIZE);
