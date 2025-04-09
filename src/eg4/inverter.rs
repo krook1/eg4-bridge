@@ -9,6 +9,8 @@ use {
     std::time::Duration,
     net2::TcpStreamExt,
     std::sync::{Arc, Mutex},
+    std::time::{Instant, SystemTime},
+    std::sync::atomic::{AtomicU64, Ordering},
 };
 
 use crate::coordinator::PacketStats;
@@ -176,12 +178,51 @@ impl std::fmt::Debug for Serial {
     }
 } // }}}
 
+struct MessageTimestamps {
+    start_time: Instant,
+    last_sent: AtomicU64,
+    last_received: AtomicU64,
+}
+
+impl MessageTimestamps {
+    fn new() -> Self {
+        Self {
+            start_time: Instant::now(),
+            last_sent: AtomicU64::new(0),
+            last_received: AtomicU64::new(0),
+        }
+    }
+
+    fn update_sent(&self) {
+        self.last_sent.store(
+            self.start_time.elapsed().as_secs(),
+            Ordering::SeqCst
+        );
+    }
+
+    fn update_received(&self) {
+        self.last_received.store(
+            self.start_time.elapsed().as_secs(),
+            Ordering::SeqCst
+        );
+    }
+
+    fn time_since_sent(&self) -> u64 {
+        self.start_time.elapsed().as_secs() - self.last_sent.load(Ordering::SeqCst)
+    }
+
+    fn time_since_received(&self) -> u64 {
+        self.start_time.elapsed().as_secs() - self.last_received.load(Ordering::SeqCst)
+    }
+}
+
 #[derive(Clone)]
 pub struct Inverter {
     config: ConfigWrapper,
     host: String,
     channels: Channels,
     shared_stats: Arc<Mutex<PacketStats>>,
+    message_timestamps: Arc<MessageTimestamps>,
 }
 
 const READ_TIMEOUT_SECS: u64 = 1; // Multiplier for read_timeout from config
@@ -191,11 +232,49 @@ const TCP_KEEPALIVE_SECS: u64 = 60; // TCP keepalive interval
 
 impl Inverter {
     pub fn new(config: ConfigWrapper, inverter: &config::Inverter, channels: Channels) -> Self {
+        let message_timestamps = Arc::new(MessageTimestamps::new());
+        let timestamps_clone = Arc::clone(&message_timestamps);
+        let datalog = inverter.datalog().map(|s| s.to_string()).unwrap_or_default();
+        let channels_clone = channels.clone();
+        
+        // Start the timer thread
+        tokio::spawn(async move {
+            loop {
+                let time_since_sent = timestamps_clone.time_since_sent();
+                let time_since_received = timestamps_clone.time_since_received();
+                
+                if time_since_sent > 60 || time_since_received > 60 {
+                    warn!(
+                        "Inverter {}: No messages for {} seconds (sent) / {} seconds (received)",
+                        datalog,
+                        time_since_sent,
+                        time_since_received
+                    );
+
+                    // If no messages received for 120 seconds, send a heartbeat
+                    if time_since_received >= 120 {
+                        info!("Inverter {}: Sending heartbeat after {} seconds of silence", datalog, time_since_received);
+                        
+                        let heartbeat = Packet::Heartbeat(crate::eg4::packet::Heartbeat {
+                            datalog: datalog.parse().expect("datalog must be valid"),
+                        });
+
+                        if let Err(e) = channels_clone.to_inverter.send(ChannelData::Packet(heartbeat)) {
+                            error!("Failed to send heartbeat to inverter {}: {}", datalog, e);
+                        }
+                    }
+                }
+                
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+
         Self {
             config: config.clone(),
             host: inverter.host().to_string(),
             channels,
             shared_stats: Arc::new(Mutex::new(PacketStats::default())),
+            message_timestamps,
         }
     }
 
@@ -205,6 +284,7 @@ impl Inverter {
             host: inverter.host().to_string(),
             channels,
             shared_stats,
+            message_timestamps: Arc::new(MessageTimestamps::new()),
         }
     }
 
@@ -334,27 +414,30 @@ impl Inverter {
         let receiver_channels = self.channels.clone();
         let sender_stats = self.shared_stats.clone();
         let receiver_stats = self.shared_stats.clone();
-        let sender_host = inverter_config.host().to_string();
-        let receiver_host = inverter_config.host().to_string();
+        let sender_host = self.host.clone();
+        let receiver_host = self.host.clone();
+        let sender_timestamps = self.message_timestamps.clone();
+        let receiver_timestamps = self.message_timestamps.clone();
 
         // Start sender and receiver tasks
-        debug!("Starting sender and receiver tasks");
-        let sender_handle = tokio::spawn(async move {
+        let _sender_handle = tokio::spawn(async move {
             let inverter = Inverter {
                 config: sender_config,
                 host: sender_host,
                 channels: sender_channels,
                 shared_stats: sender_stats,
+                message_timestamps: sender_timestamps,
             };
             inverter.sender(writer).await
         });
 
-        let receiver_handle = tokio::spawn(async move {
+        let _receiver_handle = tokio::spawn(async move {
             let inverter = Inverter {
                 config: receiver_config,
                 host: receiver_host,
                 channels: receiver_channels,
                 shared_stats: receiver_stats,
+                message_timestamps: receiver_timestamps,
             };
             inverter.inverter_periodic_reader(reader).await
         });
@@ -404,25 +487,9 @@ impl Inverter {
                 Ok(data) => {
                     match data {
                         ChannelData::Packet(packet) => {
-                            // Log packet details
-                            match &packet {
-                                Packet::Heartbeat(hb) => {
-                                    info!("[sender] Sending Heartbeat packet to inverter with datalog {}", hb.datalog);
-                                }
-                                Packet::TranslatedData(td) => {
-                                    info!("[sender] Sending TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
-                                        td.device_function, td.register, td.datalog);
-                                }
-                                Packet::ReadParam(rp) => {
-                                    info!("[sender] Sending ReadParam packet to inverter - register: {}, datalog: {}", 
-                                        rp.register, rp.datalog);
-                                }
-                                Packet::WriteParam(wp) => {
-                                    info!("[sender] Sending WriteParam packet to inverter - register: {}, values: {:?}, datalog: {}", 
-                                        wp.register, wp.values, wp.datalog);
-                                }
-                            }
-
+                            // Update timestamp when sending packet
+                            self.message_timestamps.update_sent();
+                            
                             let bytes = frame_factory.create_frame(&packet)?;
 
                             // Use timeout for write operations
@@ -431,6 +498,25 @@ impl Inverter {
                                 writer.write_all(&bytes)
                             ).await {
                                 Ok(Ok(_)) => {
+                                    // Log packet details only after successful write
+                                    match &packet {
+                                        Packet::Heartbeat(hb) => {
+                                            info!("[sender] Sent Heartbeat packet to inverter with datalog {}", hb.datalog);
+                                        }
+                                        Packet::TranslatedData(td) => {
+                                            info!("[sender] Sent TranslatedData packet to inverter - function: {:?}, register: {}, datalog: {}", 
+                                                td.device_function, td.register, td.datalog);
+                                        }
+                                        Packet::ReadParam(rp) => {
+                                            info!("[sender] Sent ReadParam packet to inverter - register: {}, datalog: {}", 
+                                                rp.register, rp.datalog);
+                                        }
+                                        Packet::WriteParam(wp) => {
+                                            info!("[sender] Sent WriteParam packet to inverter - register: {}, values: {:?}, datalog: {}", 
+                                                wp.register, wp.values, wp.datalog);
+                                        }
+                                    }
+                                    
                                     // Ensure data is actually sent
                                     if let Err(_e) = writer.flush().await {
                                         bail!("Failed to write to socket for {}", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
@@ -530,6 +616,9 @@ impl Inverter {
 
                     // Process received data
                     while let Some(packet) = decoder.decode(&mut buf)? {
+                        // Update timestamp when receiving packet
+                        self.message_timestamps.update_received();
+                        
                         let packet_clone = packet.clone();
                         info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
 

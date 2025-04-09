@@ -106,8 +106,8 @@ impl DatalogWriter {
                 // Update and log the number of values written
                 let mut values_written = self.values_written.lock().map_err(|_| anyhow::anyhow!("Failed to lock values counter"))?;
                 *values_written += data.len() as u64;
-                info!("Successfully wrote {} registers to datalog file. Total values stored: {}", 
-                    data.len(), *values_written);
+                info!("Successfully wrote {} registers to datalog file for inverter {} (datalog {}). Total values stored: {}", 
+                    data.len(), serial, datalog, *values_written);
                 
                 Ok(())
             },
