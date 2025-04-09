@@ -558,6 +558,35 @@ impl Inverter {
         let inverter_config = self.config();
         let mut to_inverter_rx = self.channels.to_inverter.subscribe();
 
+        // Start a separate task for sending ReadParam requests
+        let channels_clone = self.channels.clone();
+        let inverter_config_clone = inverter_config.clone();
+        tokio::spawn(async move {
+            loop {
+                // Wait 45 seconds before sending requests
+                tokio::time::sleep(Duration::from_secs(45)).await;
+
+                // Create and send ReadParam requests
+                let read_input_packet = Packet::ReadParam(ReadParam {
+                    datalog: inverter_config_clone.datalog().expect("datalog must be set"),
+                    register: 0x0004,
+                    values: vec![],
+                });
+                let read_hold_packet = Packet::ReadParam(ReadParam {
+                    datalog: inverter_config_clone.datalog().expect("datalog must be set"),
+                    register: 0x0003,
+                    values: vec![],
+                });
+
+                if let Err(e) = channels_clone.to_inverter.send(ChannelData::Packet(read_input_packet)) {
+                    warn!("Failed to send ReadInput request: {}", e);
+                }
+                if let Err(e) = channels_clone.to_inverter.send(ChannelData::Packet(read_hold_packet)) {
+                    warn!("Failed to send ReadHold request: {}", e);
+                }
+            }
+        });
+
         loop {
             // Check buffer capacity and prevent potential memory issues
             if buf.len() >= MAX_BUFFER_SIZE {
@@ -620,7 +649,14 @@ impl Inverter {
                         self.message_timestamps.update_received();
                         
                         let packet_clone = packet.clone();
-                        info!("RX packet from {} !", inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default());
+                        info!("RX packet from {} - type: {:?}, function: {:?}", 
+                            inverter_config.datalog().map(|s| s.to_string()).unwrap_or_default(),
+                            packet_clone,
+                            match &packet_clone {
+                                Packet::TranslatedData(td) => Some(td.device_function),
+                                _ => None
+                            }
+                        );
 
                         // Handle configuration updates asynchronously
                         let config_updates = async {
@@ -681,28 +717,6 @@ impl Inverter {
                                 _ => {}
                             }
                         }
-                    }
-
-                    // Add a delay of 15 seconds after processing all packets
-                    tokio::time::sleep(Duration::from_secs(15)).await;
-
-                    // Repeat the read requests
-                    let read_input_packet = Packet::ReadParam(ReadParam {
-                        datalog: inverter_config.datalog().expect("datalog must be set"),
-                        register: 0x0004, // Assuming 0x0004 is the register for ReadInput
-                        values: vec![],
-                    });
-                    let read_hold_packet = Packet::ReadParam(ReadParam {
-                        datalog: inverter_config.datalog().expect("datalog must be set"),
-                        register: 0x0003, // Assuming 0x0003 is the register for ReadHold
-                        values: vec![],
-                    });
-
-                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(read_input_packet)) {
-                        warn!("Failed to send ReadInput request: {}", e);
-                    }
-                    if let Err(e) = self.channels.to_inverter.send(ChannelData::Packet(read_hold_packet)) {
-                        warn!("Failed to send ReadHold request: {}", e);
                     }
                 }
             }
