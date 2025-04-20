@@ -9,7 +9,7 @@ use {
     std::time::Duration,
     net2::TcpStreamExt,
     std::sync::{Arc, Mutex},
-    std::time::{Instant, SystemTime},
+    std::time::Instant,
     std::sync::atomic::{AtomicU64, Ordering},
 };
 

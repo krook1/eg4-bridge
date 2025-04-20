@@ -9,15 +9,9 @@ use crate::eg4::{
     packet::{DeviceFunction, TranslatedData, Packet},
 };
 
-use commands::{
-    parse_hold,
-    parse_input,
-    time_register_ops::{Action, ReadTimeRegister},
-};
+use commands::time_register_ops::{Action, ReadTimeRegister};
 
 use std::sync::{Arc, Mutex};
-use crate::eg4::inverter;
-use std::error::Error;
 
 // Sleep durations - keeping only the ones actively used
 const RETRY_DELAY_MS: u64 = 1000;    // 1 second
@@ -165,7 +159,6 @@ pub struct Components {
     pub influx: Option<Influx>,       // Optional InfluxDB client
     pub databases: Vec<Database>,     // List of configured databases
     pub datalog_writer: Option<DatalogWriter>, // Optional data logger
-    #[allow(dead_code)]
     pub channels: Channels,           // Inter-component communication channels
 }
 
@@ -321,7 +314,7 @@ impl Coordinator {
         
         // Check datalog writer subscriber if configured
         if let Some(_) = &self.datalog_writer {
-            let mut receiver = self.channels.from_inverter.subscribe();
+            let receiver = self.channels.from_inverter.subscribe();
             if receiver.is_closed() {
                 error!("Datalog writer channel is closed - this is a fatal error");
                 bail!("Datalog writer channel is closed");
@@ -333,7 +326,7 @@ impl Coordinator {
 
         // Check InfluxDB subscriber if enabled
         if self.config.influx().enabled() {
-            let mut receiver = self.channels.to_influx.subscribe();
+            let receiver = self.channels.to_influx.subscribe();
             if receiver.is_closed() {
                 error!("InfluxDB channel is closed - this is a fatal error");
                 bail!("InfluxDB channel is closed");
@@ -345,7 +338,7 @@ impl Coordinator {
 
         // Check MQTT subscriber if enabled
         if self.config.mqtt().enabled() {
-            let mut receiver = self.channels.to_mqtt.subscribe();
+            let receiver = self.channels.to_mqtt.subscribe();
             if receiver.is_closed() {
                 error!("MQTT channel is closed - this is a fatal error");
                 bail!("MQTT channel is closed");
@@ -357,7 +350,7 @@ impl Coordinator {
 
         // Check database subscribers if configured
         if !self.databases.is_empty() {
-            let mut receiver = self.channels.to_database.subscribe();
+            let receiver = self.channels.to_database.subscribe();
             if receiver.is_closed() {
                 error!("Database channel is closed - this is a fatal error");
                 bail!("Database channel is closed");
@@ -472,7 +465,7 @@ impl Coordinator {
 
         // Check datalog writer subscriber if configured
         if let Some(writer) = &self.datalog_writer {
-            let mut receiver = self.channels.from_inverter.subscribe();
+            let receiver = self.channels.from_inverter.subscribe();
             if receiver.is_closed() {
                 error!("Datalog writer channel is closed - this is a fatal error");
                 bail!("Datalog writer channel is closed");
@@ -484,7 +477,7 @@ impl Coordinator {
 
         // Check InfluxDB subscriber if enabled
         if self.config.influx().enabled() {
-            let mut receiver = self.channels.to_influx.subscribe();
+            let receiver = self.channels.to_influx.subscribe();
             if receiver.is_closed() {
                 error!("InfluxDB channel is closed - this is a fatal error");
                 bail!("InfluxDB channel is closed");
@@ -496,7 +489,7 @@ impl Coordinator {
 
         // Check MQTT subscriber if enabled
         if self.config.mqtt().enabled() {
-            let mut receiver = self.channels.to_mqtt.subscribe();
+            let receiver = self.channels.to_mqtt.subscribe();
             if receiver.is_closed() {
                 error!("MQTT channel is closed - this is a fatal error");
                 bail!("MQTT channel is closed");
@@ -508,7 +501,7 @@ impl Coordinator {
 
         // Check database subscribers if configured
         if !self.databases.is_empty() {
-            let mut receiver = self.channels.to_database.subscribe();
+            let receiver = self.channels.to_database.subscribe();
             if receiver.is_closed() {
                 error!("Database channel is closed - this is a fatal error");
                 bail!("Database channel is closed");

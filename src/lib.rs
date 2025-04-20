@@ -40,7 +40,6 @@ pub struct Components {
     pub influx: Option<Influx>,       // Optional InfluxDB client
     pub databases: Vec<Database>,     // List of configured databases
     pub datalog_writer: Option<DatalogWriter>, // Optional data logger
-    #[allow(dead_code)]
     pub channels: Channels,           // Inter-component communication channels
 }
 
@@ -128,13 +127,12 @@ pub async fn run(config: Config) -> Result<()> {
 
     // Set up signal handlers for graceful shutdown
     trace!("Setting up signal handlers");
-    let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         if let Err(e) = tokio::signal::ctrl_c().await {
             error!("Failed to listen for ctrl+c: {}", e);
         }
         info!("Ctrl+C signal received, initiating shutdown");
-        let _ = shutdown_tx_clone.send(());
+        let _ = shutdown_tx.send(());
     });
 
     // Run the main application
