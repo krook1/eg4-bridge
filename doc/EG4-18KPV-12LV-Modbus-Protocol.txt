@@ -1194,10 +1194,11 @@ Addr     Item                           Unit     default    Note
       FloatChargeVolt           0.1V    500-560   Float given voltage
 145                                               0-bat first 1-PV first 2-AC
       OutputPrioConfig                  0-3       first
-                                                  0-APL (90-280V 20ms) 1-
-146
-                                                  UPS (170-280V 10ms) 2-
-      LineMode                          0-2       GEN (90-280V 20ms)
+
+                                                  0-APL (90-280V 20ms)
+146                                               1-UPS (170-280V 10ms)
+      LineMode                          0-2       2-GEN (90-280V 20ms)
+
 147                                               Battery capacity, for
       Battery capacity          Ah      0-10000   unmatched batteries
 148                                               Battery rated voltage for
